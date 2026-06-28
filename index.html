@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+  <meta charset="UTF-8" />
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
+
+  <title>CA Prep Tracker</title>
+
+  <link rel="stylesheet" href="style.css">
+
+</head>
+
+<body>
+
+  <!-- ENTRY SCREEN -->
+
+  <div id="entryScreen" class="screen active">
+
+    <div class="card auth-card">
+
+      <h1>CA Prep Tracker</h1>
+
+      <p>
+        Enter your preparation space.
+      </p>
+
+      <div class="auth-actions">
+
+        <button onclick="showRegisterFlow()">
+          Register
+        </button>
+
+        <button
+          class="secondary-btn"
+          onclick="showLoginFlow()"
+        >
+          Already a member
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- LOGIN SCREEN -->
+
+  <div id="loginScreen" class="screen">
+
+    <div class="card auth-card">
+
+      <h1>Welcome Back</h1>
+
+      <p>
+        Sign in to continue your preparation.
+      </p>
+
+      <input
+        type="text"
+        id="loginUsername"
+        placeholder="Username"
+      />
+
+      <input
+        type="password"
+        id="loginPassword"
+        placeholder="Password"
+      />
+
+      <button onclick="loginMember()">
+        Enter Dashboard
+      </button>
+
+      <button
+        class="secondary-btn"
+        onclick="backToEntry()"
+      >
+        Back
+      </button>
+
+    </div>
+
+  </div>
+
+  <!-- WELCOME SCREEN -->
+
+  <div id="welcomeScreen" class="screen">
+
+    <div class="card">
+
+      <h1>Welcome 👋</h1>
+
+      <p>
+        Let's build your preparation system.
+      </p>
+
+      <select id="goalSelect">
+
+        <option>CA</option>
+
+      </select>
+
+      <button onclick="startSetup()">
+        Continue
+      </button>
+
+    </div>
+
+  </div>
+
+  <!-- LOADING SCREEN -->
+
+  <div id="loadingScreen" class="screen loading">
+
+    <div class="spinner"></div>
+
+    <h2>
+      Hold up future Chartered Accountant,
+      setting it up for you 📚
+    </h2>
+
+  </div>
+
+  <!-- SETUP SCREEN -->
+
+  <div id="setupScreen" class="screen">
+
+    <div class="card">
+
+      <h1>Setup Your Journey</h1>
+
+      <input
+        type="text"
+        id="name"
+        placeholder="Your Name"
+      />
+
+      <input
+        type="text"
+        id="sro"
+        placeholder="SRO Number"
+      />
+
+      <select id="level">
+
+        <option>
+          CA Foundation
+        </option>
+
+        <option>
+          CA Intermediate
+        </option>
+
+        <option>
+          CA Final
+        </option>
+
+      </select>
+
+      <input
+        type="text"
+        id="attempt"
+        placeholder="Attempt (Eg: Nov 2026)"
+      />
+
+      <input
+        type="number"
+        id="attemptNumber"
+        placeholder="Attempt Number"
+      />
+
+      <input
+        type="text"
+        id="registerUsername"
+        placeholder="Create Username"
+      />
+
+      <input
+        type="password"
+        id="registerPassword"
+        placeholder="Set Password"
+      />
+
+      <textarea
+        id="expectations"
+        rows="4"
+        placeholder="What are your expectations from this app?"
+      ></textarea>
+
+      <button onclick="finishSetup()">
+        Enter Dashboard
+      </button>
+
+    </div>
+
+  </div>
+
+  <!-- DASHBOARD -->
+
+  <div id="dashboard" class="dashboard">
+
+    <div class="topbar">
+<button id="darkModeToggle" class="secondary-btn dark-toggle-btn" onclick="toggleDarkMode()">Dark Mode</button>
+
+      <div id="welcomeText" class="dashboard-greeting">
+        Hey, CA
+      </div>
+
+      <div class="quote-card">
+
+        <p>
+          “One calm step at a time.”
+        </p>
+
+      </div>
+      <button id="adminBtn" class="secondary-btn" onclick="openAdminPanel()" style="display:none; margin-left:10px;">Admin</button>
+      <button class="secondary-btn" onclick="logoutUser()" style="margin-left:10px;">Log Out</button>
+
+    </div>
+
+    <div class="dashboard-layout">
+
+      <!-- LEFT SIDE -->
+
+      <div class="tiles">
+
+        <div
+          class="tile"
+          onclick="openPage('plannerPage')"
+        >
+
+          <h3>📅 Long Term Planner</h3>
+
+          <p>
+            Build your syllabus roadmap,
+            revisions and mock strategy.
+          </p>
+
+        </div>
+
+        <div
+          class="tile"
+          onclick="openPage('targetsPage')"
+        >
+
+          <h3>🎯 Daily Targets</h3>
+
+          <p>
+            Plan tomorrow clearly and
+            execute consistently.
+          </p>
+
+        </div>
+
+        <div
+          class="tile calendar-tile"
+          onclick="openPage('calendarPage')"
+        >
+
+          <h3>🗓️ Calendar</h3>
+
+          <p>
+            See your saved long-term plan
+            in a calendar-style view.
+          </p>
+
+        </div>
+
+        <div
+          class="tile"
+          onclick="openPage('pomodoroPage')"
+        >
+
+          <h3>🌱 Pomodoro Focus</h3>
+
+          <p>
+            Deep focus sessions with
+            mindful breaks.
+          </p>
+
+        </div>
+
+        <div
+          class="tile"
+          onclick="openPage('statsPage')"
+        >
+
+          <h3>📊 Statistics</h3>
+
+          <p>
+            Track completion rates,
+            streaks and momentum.
+          </p>
+
+        </div>
+
+        <div
+          class="tile"
+          onclick="openPage('progressPage')"
+        >
+
+          <h3>📈 Progress Tracker</h3>
+
+          <p>
+            Macro view of your plan,
+            mocks and target consistency.
+          </p>
+
+        </div>
+
+      </div>
+
+      <!-- RIGHT SIDE -->
+
+      <div class="dashboard-tasks">
+
+        <h2>Today's Targets</h2>
+
+        <p>
+          Finish these calmly, one by one.
+        </p>
+
+        <ul id="dashboardTaskList"></ul>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- PROGRESS TRACKER PAGE -->
+
+  <div id="progressPage" class="screen">
+
+    <div class="card progress-card">
+
+      <h1>📈 Progress Tracker</h1>
+
+      <p>
+        Your macro view till date.
+      </p>
+
+      <div class="progress-grid">
+<div class="progress-panel progress-wide"><h2>Subject-wise Progress</h2><div id="subjectWiseProgress"></div></div>
+
+        <div class="progress-panel">
+
+          <h2>Current Goal</h2>
+
+          <div class="stat-line" id="progressCurrentSubject">
+            <span>Subject</span><strong>-</strong>
+          </div>
+
+          <div class="stat-line" id="progressDaysLeft">
+            <span>Days Left</span><strong>-</strong>
+          </div>
+
+        </div>
+
+        <div class="progress-panel progress-wide">
+
+          <h2>Daily Targets</h2>
+
+          <div class="stat-line" id="progressCompletionRate">
+            <span>Lifetime Completion Rate</span><strong>0%</strong>
+          </div>
+
+        </div>
+
+      </div>
+
+      <button id="sessionsTrackerBtn" onclick="toggleSessionsTracker()">
+        📋 Sessions Tracker
+      </button>
+
+      <div id="sessionsTrackerPanel" style="display:none; margin-top:4px; overflow-x:auto; border-radius:18px; overflow:hidden; box-shadow:0 4px 16px rgba(0,0,0,0.05);"></div>
+
+      <button onclick="goBack()">Back to Dashboard</button>
+
+    </div>
+
+  </div>
+
+  <!-- CALENDAR PAGE -->
+
+  <div id="calendarPage" class="screen">
+
+    <div class="card calendar-card">
+
+      <h1>🗓️ Study Calendar</h1>
+
+      <p>
+        Your saved long-term plan, laid out by date.
+      </p>
+
+      <div class="calendar-toolbar">
+
+        <button onclick="changeCalendarMonth(-1)">
+          Previous
+        </button>
+
+        <h2 id="calendarMonthTitle">
+          Calendar
+        </h2>
+
+        <button onclick="changeCalendarMonth(1)">
+          Next
+        </button>
+
+      </div>
+
+      <div
+        id="studyCalendarGrid"
+        class="study-calendar-grid"
+      ></div>
+
+      <button onclick="goBack()">
+        Back to Dashboard
+      </button>
+
+    </div>
+
+  </div>
+
+  <!-- DAILY TARGETS PAGE -->
+
+  <div id="targetsPage" class="screen">
+
+    <div class="card">
+
+      <h1>🎯 Daily Targets</h1>
+
+      <p>
+        Plan clearly. Execute calmly.
+      </p>
+
+      <input
+        type="text"
+        id="taskInput"
+        placeholder="Add study task"
+      />
+
+      <button onclick="addTask()">
+        Add Task
+      </button>
+
+      <ul id="taskList"></ul>
+
+      <button onclick="goBack()">
+        Back to Dashboard
+      </button>
+
+    </div>
+
+  </div>
+
+  <!-- POMODORO PAGE -->
+
+  <div id="pomodoroPage" class="screen">
+
+    <div class="card pomodoro-box">
+
+      <h1>🌱 Focus Session</h1>
+
+      <p>
+        Stay calm. One session at a time.
+      </p>
+
+      <div class="timer" id="timer">
+        25:00
+      </div>
+
+      <input
+        type="number"
+        id="pomodoroMinutes"
+        class="pomodoro-input"
+        min="1"
+        value="25"
+        placeholder="Session minutes"
+        onchange="setPomodoroDuration()"
+      />
+
+      <button onclick="startTimer()">
+        Start Session
+      </button>
+
+      <button onclick="resetTimer()">
+        Reset
+      </button>
+
+      <button onclick="goBack()">
+        Back to Dashboard
+      </button>
+
+    </div>
+
+  </div>
+
+  <!-- POMODORO FOCUS SCREEN -->
+
+  <div id="pomodoroFocusScreen" class="screen pomodoro-focus-screen">
+
+    <div class="focus-session-panel">
+
+      <p>
+        Stay with this one session.
+      </p>
+
+      <div class="focus-timer" id="focusTimer">
+        25:00
+      </div>
+
+      <div class="focus-actions">
+
+        <button onclick="requestPauseTimer()">
+          Pause Session
+        </button>
+
+        <button
+          class="end-btn"
+          onclick="requestEndTimer()"
+        >
+          End Session
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- SESSION CONFIRMATION -->
+
+  <div id="sessionConfirm" class="confirm-overlay">
+
+    <div class="confirm-card">
+
+      <h2 id="confirmTitle">
+        Are you sure?
+      </h2>
+
+      <p id="confirmMessage">
+        Consistency is key.
+      </p>
+
+      <div class="confirm-actions">
+
+        <button
+          class="secondary-btn"
+          onclick="closeSessionConfirm()"
+        >
+          Go Back
+        </button>
+
+        <button
+          id="confirmActionButton"
+          onclick="confirmSessionAction()"
+        >
+          Actually Pause
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- STATS PAGE -->
+
+  <div id="statsPage" class="screen">
+
+    <div class="card stats-card">
+
+      <h1>📊 Statistics</h1>
+
+      <p>
+        Your preparation momentum.
+      </p>
+
+      <div class="stats-split">
+
+        <div class="stats-column">
+
+          <h2>Tasks</h2>
+
+          <div class="stat-line" id="statsTasks">
+            Tasks Completed: 0
+          </div>
+
+          <div class="stat-line" id="statsTotal">
+            Total Tasks: 0
+          </div>
+
+          <div class="stat-line" id="statsCompletion">
+            Today's Completion: 0%
+          </div>
+
+        </div>
+
+        <div class="stats-divider"></div>
+
+        <div class="stats-column">
+
+          <h2>Sessions</h2>
+<input type="text" id="manualSessionSubject" placeholder="Manual session topic"/>
+<input type="number" id="manualSessionMinutes" placeholder="Minutes" min="1"/>
+<button onclick="addManualSession()">Add Session</button>
+
+          <div class="stat-line" id="statsFocusSessions">
+            Focus Sessions: 0
+          </div>
+
+          <div class="stat-line" id="statsFocusMinutes">
+            Focus Minutes: 0
+          </div>
+
+          <ul id="statsSessionList" class="stats-session-list"></ul>
+
+        </div>
+
+      </div>
+
+      <button onclick="goBack()">
+        Back to Dashboard
+      </button>
+
+    </div>
+
+  </div>
+
+  <!-- PLANNER PAGE -->
+
+  <div id="plannerPage" class="screen">
+
+    <div class="card planner-card">
+
+      <h1>📅 Long Term Planner</h1>
+
+      <p>
+        Your revision and syllabus system.
+      </p>
+
+      <div class="planner-section">
+
+        <h2>Timeline</h2>
+
+        <label class="planner-field-label">
+          First exam date
+        </label>
+
+        <input
+          type="date"
+          id="firstExamDate"
+          onchange="savePlannerSettings()"
+        />
+
+        <label class="planner-field-label">
+          Finish revisions by
+        </label>
+
+        <input
+          type="date"
+          id="revisionEndDate"
+          onchange="savePlannerSettings()"
+        />
+
+        <div id="plannerDaySummary" class="planner-note">
+          Add your dates to see available study days.
+        </div>
+
+      </div>
+
+      <div class="planner-section">
+
+        <h2>Current Status</h2>
+
+        <select
+          id="plannerSubjectSelect"
+          onchange="renderChapterChecklist()"
+        ></select>
+
+        <div class="chapter-controls"><button type="button" class="secondary-btn compact-btn" onclick="selectAllChapters(true)">Select All</button><button type="button" class="secondary-btn compact-btn" onclick="selectAllChapters(false)">Deselect All</button></div><div
+          id="chapterChecklist"
+          class="chapter-checklist"
+        ></div>
+
+        <button onclick="saveChapterStatus()">
+          Save Subject Status
+        </button>
+
+      </div>
+
+      <div class="planner-section">
+
+        <h2>Modify Syllabus</h2>
+
+        <textarea
+          id="syllabusEditor"
+          rows="6"
+          placeholder="One chapter per line"
+        ></textarea>
+
+        <button onclick="saveSyllabusEdits()">
+          Save Syllabus Changes
+        </button>
+
+      </div>
+
+      <div class="planner-section">
+
+        <h2>Revision Plan</h2>
+
+        <input
+          type="number"
+          id="revisionCount"
+          min="1"
+          value="3"
+          placeholder="Target revisions"
+          onchange="renderRevisionPlanner()"
+        />
+
+        <div class="planner-note">
+          Suggestion: many topper-style plans reduce each next revision to around 75% of the previous one.
+        </div>
+
+        <div id="revisionPlanner"></div>
+
+      </div>
+
+      <div class="planner-section">
+
+        <h2>Subject Order</h2>
+
+        <div id="subjectOrderList"></div>
+
+      </div>
+
+      <div class="planner-section">
+
+        <h2>Mock Tests</h2>
+
+        <input
+          type="number"
+          id="mockCount"
+          min="0"
+          value="2"
+          placeholder="Number of mocks"
+          onchange="savePlannerSettings()"
+        />
+
+        <select
+          id="mockTiming"
+          onchange="savePlannerSettings()"
+        >
+          <option value="after-subject">
+            At the end of each subject revision
+          </option>
+
+          <option value="final-block">
+            In the final exam-prep block
+          </option>
+        </select>
+
+      </div>
+
+      <div class="planner-section">
+
+        <h2>Feasibility</h2>
+
+        <div id="plannerFeasibility" class="planner-note">
+          Build your plan to check feasibility.
+        </div>
+
+        <button onclick="generateLongTermPlan()">
+          Generate Calendar Plan
+        </button>
+
+      </div>
+
+      <div
+        id="plannerCalendar"
+        class="planner-calendar"
+      ></div>
+
+      <button onclick="goBack()">
+        Back to Dashboard
+      </button>
+
+    </div>
+
+  </div>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script>
+    firebase.initializeApp({
+      apiKey: "AIzaSyCRVnp9_8-egH_KU5PVTpThBAu7U_Bzjpo",
+      authDomain: "its-all-grit.firebaseapp.com",
+      projectId: "its-all-grit",
+      storageBucket: "its-all-grit.firebasestorage.app",
+      messagingSenderId: "1019601220630",
+      appId: "1:1019601220630:web:36963a6b572070ae6c7137"
+    });
+  </script>
+  <script src="script.js"></script>
+
+<!-- ADMIN PAGE -->
+  <div id="adminPage" class="screen">
+    <div class="card">
+      <h1>Admin Panel</h1>
+      <p>Manage all registered users.</p>
+      <div id="adminUserList" style="margin: 20px 0;"></div>
+      <button onclick="goBack()">Back to Dashboard</button>
+    </div>
+  </div>
+
+</body>
+
+</html>
