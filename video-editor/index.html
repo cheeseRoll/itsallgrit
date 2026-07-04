@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GritCut — Local Video Editor</title>
+<link rel="stylesheet" href="css/editor.css" />
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand">Grit<span>Cut</span></div>
+  <div class="topbar-actions">
+    <button id="btnNewProject" title="Start an empty project">New</button>
+    <button id="btnImport" title="Import media files (video, audio, images)">Import Media</button>
+    <button id="btnNewTitle" title="Create a text/title clip">New Title</button>
+    <span class="sep"></span>
+    <button id="btnUndo" title="Undo (Ctrl+Z)">Undo</button>
+    <button id="btnRedo" title="Redo (Ctrl+Shift+Z)">Redo</button>
+    <span class="sep"></span>
+    <button id="btnSave" title="Save project to a .json file">Save Project</button>
+    <button id="btnOpen" title="Open a saved project file">Open Project</button>
+    <span class="sep"></span>
+    <button id="btnExport" class="accent" title="Render the sequence to a video file">Export</button>
+  </div>
+  <input type="file" id="fileInput" multiple accept="video/*,audio/*,image/*" hidden />
+  <input type="file" id="projectInput" accept=".json,application/json" hidden />
+</header>
+
+<main id="workspace">
+  <!-- TOP ROW: bin / source / program -->
+  <section class="panel" id="binPanel">
+    <div class="panel-title">Project</div>
+    <div id="binDrop" class="bin-drop">Drop media files here<br/>or click <b>Import Media</b></div>
+    <div id="binList" class="bin-list"></div>
+  </section>
+
+  <section class="panel" id="sourcePanel">
+    <div class="panel-title">Source Monitor</div>
+    <div class="monitor-body">
+      <div class="monitor-stage" id="sourceStage">
+        <video id="sourceVideo" playsinline></video>
+        <img id="sourceImage" alt="" />
+        <div id="sourceEmpty" class="monitor-empty">Double-click a bin item<br/>to open it here</div>
+      </div>
+      <div class="source-strip"><div id="sourceRange"></div><div id="sourcePlayheadMark"></div></div>
+      <div class="monitor-controls">
+        <button id="srcPlay" title="Play/Pause source">►</button>
+        <button id="srcMarkIn" title="Mark In (I)">{ In</button>
+        <button id="srcMarkOut" title="Mark Out (O)">Out }</button>
+        <button id="srcInsert" class="accent" title="Insert marked range into the timeline at the playhead">Insert ↓</button>
+        <span id="sourceTC" class="tc">00:00:00:00</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="programPanel">
+    <div class="panel-title">Program Monitor <span id="programRes" class="dim"></span></div>
+    <div class="monitor-body">
+      <div class="monitor-stage">
+        <canvas id="programCanvas" width="1280" height="720"></canvas>
+      </div>
+      <div class="monitor-controls">
+        <button id="btnGoStart" title="Go to start (Home)">⏮</button>
+        <button id="btnStepBack" title="Step back one frame (←)">◄|</button>
+        <button id="btnPlay" title="Play/Pause (Space)">►</button>
+        <button id="btnStepFwd" title="Step forward one frame (→)">|►</button>
+        <button id="btnGoEnd" title="Go to end (End)">⏭</button>
+        <span id="programTC" class="tc">00:00:00:00</span>
+        <canvas id="vuMeter" width="120" height="14" title="Master audio level"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- BOTTOM ROW: effect controls + timeline -->
+  <section class="panel" id="effectsPanel">
+    <div class="panel-title">Effect Controls</div>
+    <div id="effectControls" class="effects-body">
+      <div class="monitor-empty" style="padding:24px 10px">Select a clip on the timeline<br/>to edit its effects</div>
+    </div>
+  </section>
+
+  <section class="panel" id="timelinePanel">
+    <div class="tl-toolbar">
+      <button id="toolSelect" class="tool active" title="Selection tool (V)">▐▌ Select</button>
+      <button id="toolRazor" class="tool" title="Razor tool (C) — click a clip to split it">✂ Razor</button>
+      <button id="btnSplitPlayhead" title="Split clips under the playhead (Ctrl+K)">Split @ Playhead</button>
+      <button id="btnRippleDelete" title="Delete selected clip and close the gap">Ripple Delete</button>
+      <button id="btnSnap" class="active" title="Toggle snapping (S)">🧲 Snap</button>
+      <span class="sep"></span>
+      <label class="dim">Zoom</label>
+      <button id="btnZoomOut" title="Zoom out (-)">−</button>
+      <button id="btnZoomIn" title="Zoom in (+)">＋</button>
+      <span class="sep"></span>
+      <span id="timelineTC" class="tc">00:00:00:00</span>
+    </div>
+    <div id="timelineBody">
+      <div id="trackHeaders"></div>
+      <div id="timelineScroll">
+        <div id="timelineInner">
+          <canvas id="ruler" height="26"></canvas>
+          <div id="lanes"></div>
+          <div id="playhead"><div class="ph-cap"></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- EXPORT DIALOG -->
+<div id="exportDialog" class="overlay">
+  <div class="dialog">
+    <h2>Export Sequence</h2>
+    <label>File name <input type="text" id="exportName" value="my-video" /></label>
+    <label>Resolution
+      <select id="exportRes">
+        <option value="project">Project (1280×720)</option>
+        <option value="1920x1080">1920 × 1080</option>
+        <option value="1280x720" selected>1280 × 720</option>
+        <option value="854x480">854 × 480</option>
+      </select>
+    </label>
+    <label>Format <select id="exportFormat"></select></label>
+    <p class="dim" id="exportInfo">Renders in real time through the same playback engine — a 60 s sequence takes about 60 s.</p>
+    <div class="progress"><div id="exportProgress"></div></div>
+    <div class="dialog-actions">
+      <button id="exportCancel">Cancel</button>
+      <button id="exportStart" class="accent">Start Export</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="js/util.js"></script>
+<script src="js/state.js"></script>
+<script src="js/media.js"></script>
+<script src="js/playback.js"></script>
+<script src="js/timeline.js"></script>
+<script src="js/effects.js"></script>
+<script src="js/exporter.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

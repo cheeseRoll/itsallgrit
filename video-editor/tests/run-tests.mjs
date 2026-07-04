@@ -1,0 +1,377 @@
+// End-to-end suite for GritCut. Drives the real app in Chromium over file://
+// (exactly how it runs on the user's laptop): imports real media, edits the
+// timeline, checks composited pixels, audio routing, a real export, and
+// project persistence.
+import { chromium } from "playwright";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const appUrl = "file://" + path.join(here, "..", "index.html");
+const fx = (n) => path.join(here, "fixtures", n);
+
+const results = [];
+let page, context, browser;
+const pageErrors = [];
+
+function ok(cond, msg) {
+  if (!cond) throw new Error("ASSERT: " + msg);
+}
+function approx(a, b, tol, msg) {
+  ok(Math.abs(a - b) <= tol, `${msg} (got ${a}, want ~${b}±${tol})`);
+}
+
+async function seekAndDraw(t) {
+  await page.evaluate((t) => { Player.pause(); Player.seek(t); }, t);
+  await page.waitForTimeout(700); // let element seeks + static draw settle
+  await page.evaluate(() => Player.drawNow());
+}
+
+async function px(x, y) {
+  return page.evaluate(([x, y]) => {
+    const c = document.querySelector("#programCanvas");
+    const d = c.getContext("2d").getImageData(x, y, 1, 1).data;
+    return [d[0], d[1], d[2]];
+  }, [x, y]);
+}
+
+// scan a region for any pixel passing predicate (serialized as string)
+async function scanRegion(x0, y0, w, h, predSrc) {
+  return page.evaluate(([x0, y0, w, h, predSrc]) => {
+    const pred = eval("(" + predSrc + ")");
+    const c = document.querySelector("#programCanvas");
+    const d = c.getContext("2d").getImageData(x0, y0, w, h).data;
+    for (let i = 0; i < d.length; i += 4) {
+      if (pred(d[i], d[i + 1], d[i + 2])) return true;
+    }
+    return false;
+  }, [x0, y0, w, h, predSrc]);
+}
+
+const state = {}; // shared between tests (media ids, durations)
+
+const tests = [];
+const test = (name, fn) => tests.push([name, fn]);
+
+// ---------------------------------------------------------------------------
+
+test("app loads over file:// without errors", async () => {
+  await page.goto(appUrl);
+  await page.waitForSelector("#programCanvas");
+  const title = await page.title();
+  ok(title.includes("GritCut"), "title present");
+  const canvasSize = await page.evaluate(() => {
+    const c = document.querySelector("#programCanvas");
+    return [c.width, c.height];
+  });
+  ok(canvasSize[0] === 1280 && canvasSize[1] === 720, "program canvas at project resolution");
+});
+
+test("imports video, audio and image media with correct metadata", async () => {
+  await page.setInputFiles("#fileInput", [fx("red.webm"), fx("blue.webm"), fx("still.png"), fx("tone.wav")]);
+  await page.waitForFunction(() => window.App && App.media.length === 4, null, { timeout: 20000 });
+  const media = await page.evaluate(() =>
+    App.media.map((m) => ({ id: m.id, name: m.name, type: m.type, duration: m.duration, offline: m.offline })));
+  ok(media.every((m) => !m.offline), "all media online");
+  const red = media.find((m) => m.name === "red.webm");
+  const blue = media.find((m) => m.name === "blue.webm");
+  const still = media.find((m) => m.name === "still.png");
+  const tone = media.find((m) => m.name === "tone.wav");
+  ok(red && red.type === "video", "red.webm imported as video");
+  ok(blue && blue.type === "video", "blue.webm imported as video");
+  ok(still && still.type === "image", "still.png imported as image");
+  ok(tone && tone.type === "audio", "tone.wav imported as audio");
+  ok(isFinite(red.duration) && red.duration > 3 && red.duration < 6, `red duration sane (${red.duration})`);
+  approx(tone.duration, 3, 0.2, "tone.wav duration");
+  const binCount = await page.locator(".bin-item").count();
+  ok(binCount === 4, "bin shows 4 items");
+  Object.assign(state, { red, blue, still, tone });
+});
+
+test("clips placed on the timeline composite in the program monitor", async () => {
+  await page.evaluate(({ red, blue }) => {
+    const r = Timeline.addClip(red.id, "V1", 0);
+    Timeline.addClip(blue.id, "V1", clipEnd(r));
+  }, state);
+  state.cut = await page.evaluate(() => clipEnd(clipsOnTrack("V1")[0]));
+  await seekAndDraw(1);
+  let [r, g, b] = await px(640, 360);
+  ok(r > 150 && g < 80 && b < 80, `frame at t=1 is red (${r},${g},${b})`);
+  await seekAndDraw(state.cut + 1);
+  [r, g, b] = await px(640, 360);
+  ok(b > 150 && r < 80 && g < 80, `frame after the cut is blue (${r},${g},${b})`);
+});
+
+test("razor split at playhead + undo/redo", async () => {
+  await page.evaluate(() => { Player.seek(1.5); Timeline.splitAtPlayhead(); });
+  let n = await page.evaluate(() => App.seq.clips.length);
+  ok(n === 3, `split produced 3 clips (got ${n})`);
+  await page.evaluate(() => undo());
+  n = await page.evaluate(() => App.seq.clips.length);
+  ok(n === 2, `undo restored 2 clips (got ${n})`);
+  await page.evaluate(() => redo());
+  n = await page.evaluate(() => App.seq.clips.length);
+  ok(n === 3, `redo back to 3 clips (got ${n})`);
+  await page.evaluate(() => undo()); // leave 2 clips for later tests
+});
+
+test("drag & drop from bin to a timeline track", async () => {
+  await page.evaluate(({ still }) => {
+    const item = document.querySelector(`[data-media-id="${still.id}"]`);
+    const dt = new DataTransfer();
+    item.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+    const lane = document.querySelector('.lane[data-track="V2"]');
+    const rect = lane.getBoundingClientRect();
+    const scroll = document.querySelector("#timelineScroll");
+    const x = rect.left + 10 * App.ui.pxPerSec - scroll.scrollLeft;
+    const opts = { dataTransfer: dt, bubbles: true, clientX: x, clientY: rect.top + 5 };
+    lane.dispatchEvent(new DragEvent("dragover", opts));
+    lane.dispatchEvent(new DragEvent("drop", opts));
+  }, state);
+  const clip = await page.evaluate(() => clipsOnTrack("V2")[0] && {
+    start: clipsOnTrack("V2")[0].start, mediaId: clipsOnTrack("V2")[0].mediaId,
+  });
+  ok(clip, "a clip landed on V2");
+  approx(clip.start, 10, 0.5, "dropped near t=10");
+  ok(clip.mediaId === state.still.id, "it is the still image");
+  await seekAndDraw(11);
+  const [r, g, b] = await px(640, 360);
+  ok(g > 120 && r < 100 && b < 100, `still image renders green (${r},${g},${b})`);
+  await page.evaluate(() => { App.ui.selectedClipId = clipsOnTrack("V2")[0].id; Timeline.deleteSelected(); });
+});
+
+test("moving a clip with the mouse (trim/move interactions)", async () => {
+  await page.evaluate(() => { App.ui.snap = false; });
+  const box = await page.evaluate(() => {
+    const blue = clipsOnTrack("V1")[1];
+    const div = document.querySelector(`[data-clip-id="${blue.id}"]`);
+    const r = div.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2, start: blue.start, pps: App.ui.pxPerSec };
+  });
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.pps, box.y, { steps: 8 }); // +1 second
+  await page.mouse.up();
+  const newStart = await page.evaluate(() => clipsOnTrack("V1")[1].start);
+  approx(newStart, box.start + 1, 0.3, "clip moved ~1s right");
+  await page.evaluate(() => { undo(); App.ui.snap = true; });
+  const back = await page.evaluate(() => clipsOnTrack("V1")[1].start);
+  approx(back, box.start, 0.05, "undo restored the move");
+});
+
+test("color effects apply to the composited frame", async () => {
+  await page.evaluate(() => { clipsOnTrack("V1")[0].fx.grayscale = 100; Player.invalidate(); });
+  await seekAndDraw(1);
+  const [r, g, b] = await px(640, 360);
+  ok(Math.abs(r - g) < 12 && Math.abs(g - b) < 12, `grayscale makes r≈g≈b (${r},${g},${b})`);
+  await page.evaluate(() => { clipsOnTrack("V1")[0].fx.grayscale = 0; Player.invalidate(); });
+});
+
+test("motion (scale) and opacity apply", async () => {
+  await page.evaluate(() => {
+    const c = clipsOnTrack("V1")[0];
+    c.transform.scale = 50; Player.invalidate();
+  });
+  await seekAndDraw(1);
+  let [r] = await px(30, 30);
+  ok(r < 40, "corner is black at 50% scale");
+  let [rc] = await px(640, 360);
+  ok(rc > 150, "center still red at 50% scale");
+  await page.evaluate(() => {
+    const c = clipsOnTrack("V1")[0];
+    c.transform.scale = 100; c.opacity = 0; Player.invalidate();
+  });
+  await seekAndDraw(1);
+  [r] = await px(640, 360);
+  ok(r < 30, "opacity 0 → black frame");
+  await page.evaluate(() => { clipsOnTrack("V1")[0].opacity = 100; Player.invalidate(); });
+});
+
+test("cross dissolve renders a blend at the cut", async () => {
+  await page.evaluate(() => {
+    App.ui.selectedClipId = clipsOnTrack("V1")[0].id;
+    Timeline.addTransition("dissolve", "end");
+  });
+  const trCount = await page.evaluate(() => App.seq.transitions.length);
+  ok(trCount === 1, "transition created");
+  await seekAndDraw(state.cut); // middle of the transition, p=0.5
+  const [r, , b] = await px(640, 360);
+  ok(r > 60 && b > 60, `mid-dissolve blends red and blue (${r},*,${b})`);
+});
+
+test("title clip renders text over video", async () => {
+  await page.evaluate(() => {
+    const t = Media.createTitle();
+    Timeline.addClip(t.id, "V3", 0.5, 0, 2);
+  });
+  await seekAndDraw(1);
+  const found = await scanRegion(340, 320, 600, 80, "(r,g,b)=>r>200&&g>200&&b>200");
+  ok(found, "white title text found over the red frame");
+  await page.evaluate(() => {
+    App.ui.selectedClipId = clipsOnTrack("V3")[0].id;
+    Timeline.deleteSelected();
+  });
+});
+
+test("playback advances the playhead and stays in sync", async () => {
+  await page.evaluate(() => { Player.seek(0.2); Player.play(); });
+  await page.waitForTimeout(1200);
+  const { t, playing } = await page.evaluate(() => ({ t: App.ui.playhead, playing: Player.playing }));
+  ok(playing, "still playing");
+  approx(t, 1.4, 0.5, "playhead advanced in real time");
+  const [r] = await px(640, 360);
+  ok(r > 120, "frame during playback is red");
+  await page.evaluate(() => Player.pause());
+});
+
+test("audio routes to the master bus; track mute silences it", async () => {
+  await page.evaluate(({ tone }) => {
+    Timeline.addClip(tone.id, "A1", 0);
+    // silence the video clips' embedded tones so we measure only A1
+    for (const c of clipsOnTrack("V1")) c.volume = 0;
+  }, state);
+  await page.evaluate(() => { Player.seek(0.3); Player.play(); });
+  await page.waitForTimeout(900);
+  const loud = await page.evaluate(() => AudioEngine.levelPeak());
+  ok(loud > 0.05, `tone is audible on the master bus (peak ${loud.toFixed(3)})`);
+  await page.evaluate(() => { findTrack("A1").muted = true; });
+  await page.waitForTimeout(900);
+  const quiet = await page.evaluate(() => AudioEngine.levelPeak());
+  ok(quiet < 0.02, `muting A1 silences the master bus (peak ${quiet.toFixed(3)})`);
+  await page.evaluate(() => {
+    Player.pause();
+    findTrack("A1").muted = false;
+    for (const c of clipsOnTrack("V1")) c.volume = 100;
+  });
+});
+
+test("speed change shortens the clip and still plays", async () => {
+  const { before, after } = await page.evaluate(() => {
+    const c = clipsOnTrack("V1")[0];
+    const before = clipDur(c);
+    c.speed = 2;
+    const after = clipDur(c);
+    Player.invalidate(); Timeline.render();
+    return { before, after };
+  });
+  approx(after, before / 2, 0.05, "2× speed halves timeline duration");
+  await seekAndDraw(0.5);
+  const [r] = await px(640, 360);
+  ok(r > 120, "sped-up clip still renders");
+  await page.evaluate(() => { clipsOnTrack("V1")[0].speed = 1; Player.invalidate(); Timeline.render(); });
+});
+
+test("export renders a real playable video file", async () => {
+  // build a compact 4s sequence: red 0-2, blue 2-4
+  await page.evaluate(({ red, blue }) => {
+    App.seq.clips = [];
+    App.seq.transitions = [];
+    const a = Timeline.addClip(red.id, "V1", 0, 0, 2);
+    Timeline.addClip(blue.id, "V1", clipEnd(a), 0, 2);
+  }, state);
+  await page.evaluate(() => Exporter.openDialog());
+  await page.selectOption("#exportRes", "854x480");
+  await page.evaluate(() => Exporter.start());
+  await page.waitForFunction(() => !!App.lastExport, null, { timeout: 60000 });
+  const info = await page.evaluate(() => ({ size: App.lastExport.size, type: App.lastExport.type }));
+  ok(info.size > 20000, `export file has substance (${info.size} bytes)`);
+  ok(info.type.includes("webm") || info.type.includes("mp4"), `container type ${info.type}`);
+
+  // decode the exported file and verify duration + frames
+  const check = await page.evaluate(async () => {
+    const url = URL.createObjectURL(App.lastExport.blob);
+    const v = document.createElement("video");
+    v.src = url;
+    await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = rej; });
+    if (!isFinite(v.duration)) {
+      await new Promise((res) => {
+        v.addEventListener("durationchange", () => { if (isFinite(v.duration)) res(); });
+        v.currentTime = 1e7;
+      });
+    }
+    const dur = v.duration;
+    const sample = async (t) => {
+      v.currentTime = t;
+      await new Promise((res) => (v.onseeked = res));
+      const c = document.createElement("canvas");
+      c.width = v.videoWidth; c.height = v.videoHeight;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(v, 0, 0);
+      const d = ctx.getImageData(Math.floor(c.width / 2), Math.floor(c.height / 2), 1, 1).data;
+      return [d[0], d[1], d[2]];
+    };
+    const early = await sample(1.0);
+    const late = await sample(3.2);
+    return { dur, early, late, w: v.videoWidth, h: v.videoHeight };
+  });
+  approx(check.dur, 4, 1.2, "exported duration ≈ sequence length");
+  ok(check.w === 854 || check.w === 852, `exported at requested width (${check.w})`);
+  ok(check.early[0] > 100 && check.early[2] < 100, `exported frame at 1s is red (${check.early})`);
+  ok(check.late[2] > 100 && check.late[0] < 100, `exported frame at 3.2s is blue (${check.late})`);
+});
+
+test("project save, reload, autosave restore and media relink", async () => {
+  const json = await page.evaluate(() => Project.serialize());
+  await page.reload();
+  await page.waitForSelector("#programCanvas");
+  // autosave should have restored the edit structure with offline media
+  const restored = await page.evaluate(() => ({
+    clips: App.seq.clips.length,
+    offline: App.media.filter((m) => m.offline).length,
+  }));
+  ok(restored.clips === 2, `autosave restored the timeline (${restored.clips} clips)`);
+  ok(restored.offline >= 2, "media is offline after reload (files can't persist)");
+  // explicit project-file load path
+  await page.evaluate((j) => Project.load(j), json);
+  const clips = await page.evaluate(() => App.seq.clips.length);
+  ok(clips === 2, "project file loads the same timeline");
+  // relink by re-importing the same files
+  await page.setInputFiles("#fileInput", [fx("red.webm"), fx("blue.webm"), fx("still.png"), fx("tone.wav")]);
+  await page.waitForFunction(() => App.media.every((m) => !m.offline), null, { timeout: 20000 });
+  await seekAndDraw(1);
+  const [r] = await px(640, 360);
+  ok(r > 120, "relinked media renders again");
+});
+
+test("overwrite edit trims what it lands on", async () => {
+  const res = await page.evaluate(({ blue }) => {
+    // red[0..2) blue[2..4) exist; drop blue over 1..3 → red trimmed, old blue trimmed
+    Timeline.addClip(blue.id, "V1", 1, 0, 2);
+    return clipsOnTrack("V1").map((c) => ({ start: c.start, end: clipEnd(c), media: findMedia(c.mediaId).name }));
+  }, state);
+  ok(res.length === 3, `overwrite produced 3 clips (${JSON.stringify(res)})`);
+  approx(res[0].end, 1, 0.05, "first clip trimmed to the overwrite start");
+  approx(res[1].start, 1, 0.05, "new clip starts at 1");
+  approx(res[2].start, 3, 0.05, "old blue clip trimmed to start at 3");
+});
+
+test("no page errors across the whole run", async () => {
+  ok(pageErrors.length === 0, "page errors: " + pageErrors.join(" | "));
+});
+
+// ---------------------------------------------------------------------------
+
+browser = await chromium.launch({
+  executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+  args: ["--autoplay-policy=no-user-gesture-required", "--no-sandbox"],
+});
+context = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+page = await context.newPage();
+page.on("pageerror", (e) => pageErrors.push(String(e)));
+page.on("console", (m) => { if (m.type() === "error") pageErrors.push("console: " + m.text()); });
+
+let failed = 0;
+for (const [name, fn] of tests) {
+  try {
+    await fn();
+    console.log(`  ✔ ${name}`);
+    results.push([name, true]);
+  } catch (e) {
+    failed++;
+    console.log(`  ✘ ${name}\n      ${e.message}`);
+    results.push([name, false]);
+  }
+}
+await browser.close();
+console.log(`\n${results.length - failed}/${results.length} tests passed`);
+process.exit(failed ? 1 : 0);
