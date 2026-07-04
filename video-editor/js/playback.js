@@ -105,6 +105,9 @@ const Pool = window.Pool = {
     for (const id of [...this.entries.keys()]) {
       if (!live.has(id)) this.dispose(id);
     }
+    for (const id of [...Compositor._keyCanvases.keys()]) {
+      if (!live.has(id)) Compositor._keyCanvases.delete(id);
+    }
   },
 };
 
@@ -155,6 +158,7 @@ const Compositor = window.Compositor = {
   },
 
   drawTransition(ctx, trackId, tr, t) {
+    const { width: W, height: H } = App.settings;
     const p = clamp((t - (tr.at - tr.duration / 2)) / tr.duration, 0, 1);
     const clips = clipsOnTrack(trackId);
     const outClip = clips.find((c) => Math.abs(clipEnd(c) - tr.at) < 0.02);
@@ -162,24 +166,38 @@ const Compositor = window.Compositor = {
     if (tr.type === "dipblack") {
       if (p < 0.5 && outClip) this.drawClip(ctx, outClip, t, 1 - p * 2);
       if (p >= 0.5 && inClip) this.drawClip(ctx, inClip, t, p * 2 - 1);
+    } else if (tr.type === "wipe") {
+      if (outClip) this.drawClip(ctx, outClip, t, 1);
+      if (inClip) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, W * p, H);
+        ctx.clip();
+        this.drawClip(ctx, inClip, t, 1);
+        ctx.restore();
+      }
+    } else if (tr.type === "push") {
+      if (outClip) this.drawClip(ctx, outClip, t, 1, -W * p);
+      if (inClip) this.drawClip(ctx, inClip, t, 1, W * (1 - p));
     } else { // cross dissolve
       if (outClip) this.drawClip(ctx, outClip, t, 1);
       if (inClip) this.drawClip(ctx, inClip, t, p);
     }
   },
 
-  // alphaMul: extra multiplier from a transition envelope
-  drawClip(ctx, clip, t, alphaMul) {
+  // alphaMul: extra multiplier from a transition envelope;
+  // offsetX: extra horizontal shift (push transition)
+  drawClip(ctx, clip, t, alphaMul, offsetX = 0) {
     const media = findMedia(clip.mediaId);
     if (!media || media.offline) return;
     const { width: W, height: H } = App.settings;
-    const alpha = alphaMul * (clip.opacity / 100) * this.fadeFactor(clip, t);
+    const alpha = alphaMul * (propValue(clip, "opacity", t) / 100) * this.fadeFactor(clip, t);
     if (alpha <= 0) return;
 
     ctx.save();
     ctx.globalAlpha = clamp(alpha, 0, 1);
-    ctx.translate(W / 2 + clip.transform.x, H / 2 + clip.transform.y);
-    ctx.rotate((clip.transform.rotation * Math.PI) / 180);
+    ctx.translate(W / 2 + propValue(clip, "x", t) + offsetX, H / 2 + propValue(clip, "y", t));
+    ctx.rotate((propValue(clip, "rotation", t) * Math.PI) / 180);
     ctx.filter = this.filterString(clip.fx);
 
     if (media.type === "title") {
@@ -195,26 +213,79 @@ const Compositor = window.Compositor = {
         }
       }
       if (src && sw && sh) {
-        const fit = Math.min(W / sw, H / sh) * (clip.transform.scale / 100);
-        ctx.drawImage(src, (-sw * fit) / 2, (-sh * fit) / 2, sw * fit, sh * fit);
+        if (clip.fx.keyEnabled) src = this.chromaKey(clip, src, sw, sh);
+        const fit = Math.min(W / sw, H / sh) * (propValue(clip, "scale", t) / 100);
+        const dw = sw * fit, dh = sh * fit;
+        ctx.drawImage(src, -dw / 2, -dh / 2, dw, dh);
+        if (clip.fx.vignette > 0) {
+          ctx.filter = "none";
+          const g = ctx.createRadialGradient(0, 0, Math.min(dw, dh) * 0.25, 0, 0, Math.max(dw, dh) * 0.72);
+          g.addColorStop(0, "rgba(0,0,0,0)");
+          g.addColorStop(1, `rgba(0,0,0,${clip.fx.vignette / 100})`);
+          ctx.fillStyle = g;
+          ctx.fillRect(-dw / 2, -dh / 2, dw, dh);
+        }
       }
     }
     ctx.restore();
   },
 
+  // green-screen keying: remove pixels close to the key color
+  _keyCanvases: new Map(), // clipId -> {c, ctx}
+  chromaKey(clip, src, sw, sh) {
+    let kc = this._keyCanvases.get(clip.id);
+    if (!kc) {
+      const c = document.createElement("canvas");
+      kc = { c, ctx: c.getContext("2d", { willReadFrequently: true }) };
+      this._keyCanvases.set(clip.id, kc);
+    }
+    kc.c.width = sw; kc.c.height = sh;
+    kc.ctx.drawImage(src, 0, 0, sw, sh);
+    const img = kc.ctx.getImageData(0, 0, sw, sh);
+    const d = img.data;
+    const hex = clip.fx.keyColor || "#00ff00";
+    const kr = parseInt(hex.slice(1, 3), 16), kg = parseInt(hex.slice(3, 5), 16), kb = parseInt(hex.slice(5, 7), 16);
+    const sim = (clip.fx.keySimilarity / 100) * 255;
+    const smooth = Math.max((clip.fx.keySmooth / 100) * 255, 1);
+    for (let i = 0; i < d.length; i += 4) {
+      const dr = d[i] - kr, dg = d[i + 1] - kg, db = d[i + 2] - kb;
+      const dist = Math.sqrt(dr * dr + dg * dg + db * db) / 1.732;
+      if (dist < sim) d[i + 3] = 0;
+      else if (dist < sim + smooth) d[i + 3] = Math.round(((dist - sim) / smooth) * d[i + 3]);
+    }
+    kc.ctx.putImageData(img, 0, 0);
+    return kc.c;
+  },
+
   drawTitle(ctx, media, W, H) {
     const tp = media.title;
-    const scale = 1; // title coords are already in project space
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = `${tp.bold ? "bold " : ""}${tp.fontSize * scale}px system-ui, Segoe UI, sans-serif`;
-    ctx.shadowColor = "rgba(0,0,0,0.7)";
-    ctx.shadowBlur = 8;
-    ctx.fillStyle = tp.color;
+    ctx.font = `${tp.bold ? "bold " : ""}${tp.fontSize}px ${tp.font || "system-ui"}, "Segoe UI", sans-serif`;
     const lines = String(tp.text).split("\n");
     const lh = tp.fontSize * 1.2;
     const y0 = tp.y - ((lines.length - 1) * lh) / 2;
-    lines.forEach((line, i) => ctx.fillText(line, tp.x, y0 + i * lh));
+    if (tp.bg) {
+      const pad = tp.fontSize * 0.35;
+      let maxW = 0;
+      for (const line of lines) maxW = Math.max(maxW, ctx.measureText(line).width);
+      ctx.fillStyle = tp.bgColor || "#000";
+      ctx.fillRect(tp.x - maxW / 2 - pad, y0 - lh / 2 - pad / 2,
+        maxW + pad * 2, lh * lines.length + pad);
+    }
+    ctx.shadowColor = "rgba(0,0,0,0.7)";
+    ctx.shadowBlur = 8;
+    lines.forEach((line, i) => {
+      const ly = y0 + i * lh;
+      if (tp.outlineWidth > 0) {
+        ctx.lineWidth = tp.outlineWidth;
+        ctx.strokeStyle = tp.outlineColor || "#000";
+        ctx.lineJoin = "round";
+        ctx.strokeText(line, tp.x, ly);
+      }
+      ctx.fillStyle = tp.color;
+      ctx.fillText(line, tp.x, ly);
+    });
   },
 };
 
@@ -236,7 +307,10 @@ const Player = window.Player = {
     this.renderTargets = [{ canvas, ctx: canvas.getContext("2d") }];
     $("#programRes").textContent = `${App.settings.width}×${App.settings.height} @ ${App.settings.fps}fps`;
     this.drawNow();
-    this.meterLoop();
+    if (!this._meterStarted) {
+      this._meterStarted = true;
+      this.meterLoop();
+    }
   },
 
   // how far outside [start,end) a clip's element must stay warm (transitions)
@@ -274,7 +348,8 @@ const Player = window.Player = {
   toggle() { this.playing ? this.pause() : this.play(); },
 
   seek(t) {
-    t = clamp(t, 0, Math.max(sequenceEnd(), 0));
+    // allow parking the playhead in empty timeline space past the last clip
+    t = clamp(t, 0, Math.max(Timeline.duration(), sequenceEnd()));
     App.ui.playhead = t;
     if (this.playing) {
       this.anchorCtxTime = AudioEngine.ctx.currentTime;
@@ -342,7 +417,7 @@ const Player = window.Player = {
         const track = findTrack(clip.track);
         const muted = track && track.muted ? 0 : 1;
         const inWindow = t >= clip.start && t < clipEnd(clip) ? 1 : 0;
-        entry.gain.gain.value = (clip.volume / 100) * Compositor.fadeFactor(clip, t) * muted * inWindow;
+        entry.gain.gain.value = (propValue(clip, "volume", t) / 100) * Compositor.fadeFactor(clip, t) * muted * inWindow;
       }
     }
   },

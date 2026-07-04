@@ -14,6 +14,10 @@
     <button id="btnNewProject" title="Start an empty project">New</button>
     <button id="btnImport" title="Import media files (video, audio, images)">Import Media</button>
     <button id="btnNewTitle" title="Create a text/title clip">New Title</button>
+    <button id="btnRecCam" title="Record your webcam into the project">⏺ Camera</button>
+    <button id="btnRecScreen" title="Record your screen into the project">⏺ Screen</button>
+    <span class="sep"></span>
+    <button id="btnSettings" title="Sequence resolution and frame rate">Sequence</button>
     <span class="sep"></span>
     <button id="btnUndo" title="Undo (Ctrl+Z)">Undo</button>
     <button id="btnRedo" title="Redo (Ctrl+Shift+Z)">Redo</button>
@@ -66,6 +70,7 @@
         <button id="btnPlay" title="Play/Pause (Space)">►</button>
         <button id="btnStepFwd" title="Step forward one frame (→)">|►</button>
         <button id="btnGoEnd" title="Go to end (End)">⏭</button>
+        <button id="btnSaveFrame" title="Save the current frame as a PNG image">📷</button>
         <span id="programTC" class="tc">00:00:00:00</span>
         <canvas id="vuMeter" width="120" height="14" title="Master audio level"></canvas>
       </div>
@@ -91,6 +96,8 @@
       <label class="dim">Zoom</label>
       <button id="btnZoomOut" title="Zoom out (-)">−</button>
       <button id="btnZoomIn" title="Zoom in (+)">＋</button>
+      <button id="btnZoomFit" title="Fit the whole sequence in view">Fit</button>
+      <button id="btnMarker" title="Add a marker at the playhead (M)">🔖 Marker</button>
       <span class="sep"></span>
       <span id="timelineTC" class="tc">00:00:00:00</span>
     </div>
@@ -112,20 +119,41 @@
   <div class="dialog">
     <h2>Export Sequence</h2>
     <label>File name <input type="text" id="exportName" value="my-video" /></label>
-    <label>Resolution
-      <select id="exportRes">
-        <option value="project">Project (1280×720)</option>
-        <option value="1920x1080">1920 × 1080</option>
-        <option value="1280x720" selected>1280 × 720</option>
-        <option value="854x480">854 × 480</option>
-      </select>
-    </label>
+    <label>Resolution <select id="exportRes"></select></label>
     <label>Format <select id="exportFormat"></select></label>
     <p class="dim" id="exportInfo">Renders in real time through the same playback engine — a 60 s sequence takes about 60 s.</p>
     <div class="progress"><div id="exportProgress"></div></div>
     <div class="dialog-actions">
       <button id="exportCancel">Cancel</button>
       <button id="exportStart" class="accent">Start Export</button>
+    </div>
+  </div>
+</div>
+
+<!-- SEQUENCE SETTINGS DIALOG -->
+<div id="settingsDialog" class="overlay">
+  <div class="dialog">
+    <h2>Sequence Settings</h2>
+    <label>Format
+      <select id="seqPreset">
+        <option value="1920x1080">1920 × 1080 (Full HD)</option>
+        <option value="1280x720" selected>1280 × 720 (HD)</option>
+        <option value="854x480">854 × 480 (SD)</option>
+        <option value="1080x1920">1080 × 1920 (Vertical / Shorts)</option>
+        <option value="1080x1080">1080 × 1080 (Square)</option>
+      </select>
+    </label>
+    <label>Frame rate
+      <select id="seqFps">
+        <option value="24">24 fps (film)</option>
+        <option value="30" selected>30 fps</option>
+        <option value="60">60 fps</option>
+      </select>
+    </label>
+    <p class="dim">Clips scale to fit the new frame. Existing edits are kept.</p>
+    <div class="dialog-actions">
+      <button id="settingsCancel">Cancel</button>
+      <button id="settingsApply" class="accent">Apply</button>
     </div>
   </div>
 </div>

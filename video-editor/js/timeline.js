@@ -90,7 +90,32 @@ const Timeline = window.Timeline = {
     );
     if (clip.fadeIn > 0) div.appendChild(el("div", { class: "clip-fade in", style: `width:${clip.fadeIn / clip.speed * this.pps()}px` }));
     if (clip.fadeOut > 0) div.appendChild(el("div", { class: "clip-fade out", style: `width:${clip.fadeOut / clip.speed * this.pps()}px` }));
+    if (track.kind === "audio" && media && media.peaks) {
+      div.insertBefore(this.waveformCanvas(clip, media, track), div.children[1]);
+    }
+    // keyframe indicator: a dot per animated property
+    const kfProps = Object.keys(clip.kf || {}).filter((p) => clip.kf[p] && clip.kf[p].length);
+    if (kfProps.length) {
+      div.appendChild(el("div", { class: "clip-kf-badge", title: `Animated: ${kfProps.join(", ")}`, text: "◆" }));
+    }
     return div;
+  },
+
+  waveformCanvas(clip, media, track) {
+    const wPx = Math.min(Math.max(2, Math.round(clipDur(clip) * this.pps())), 4000);
+    const hPx = this.laneHeight(track.kind) - 10;
+    const canvas = el("canvas", { class: "clip-wave", width: wPx, height: hPx });
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    const rate = media.peaksRate || 50;
+    const mid = hPx / 2;
+    for (let x = 0; x < wPx; x++) {
+      const srcT = clip.in + (x / wPx) * (clip.out - clip.in);
+      const peak = media.peaks[Math.min(media.peaks.length - 1, Math.floor(srcT * rate))] || 0;
+      const h = Math.max(1, peak * (hPx - 2));
+      ctx.fillRect(x, mid - h / 2, 1, h);
+    }
+    return canvas;
   },
 
   transitionDiv(tr) {
@@ -137,6 +162,24 @@ const Timeline = window.Timeline = {
         ctx.fillRect(x + m * minor * pps, 20, 1, 6);
       }
     }
+    // sequence markers
+    for (const m of App.seq.markers || []) {
+      const x = m.t * pps - scroll.scrollLeft;
+      if (x < -10 || x > w + 10) continue;
+      ctx.fillStyle = "#3fb950";
+      ctx.fillRect(x, 0, 2, this.RULER_H);
+      ctx.beginPath();
+      ctx.moveTo(x + 2, 0); ctx.lineTo(x + 9, 5); ctx.lineTo(x + 2, 10);
+      ctx.fill();
+    }
+  },
+
+  zoomFit() {
+    const scroll = $("#timelineScroll");
+    const dur = Math.max(sequenceEnd(), 10);
+    App.ui.pxPerSec = clamp((scroll.clientWidth - 40) / dur, 2, 400);
+    this.render();
+    scroll.scrollLeft = 0;
   },
 
   updatePlayheadUI() {

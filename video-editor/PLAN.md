@@ -87,10 +87,28 @@ browser, no server, no install, no upload — files never leave the machine.**
 - [x] Export to WebM (VP8/VP9 + Opus; MP4 where the browser supports it) with
       resolution choice — rendered through the same compositor, in real time
 
-### Deliberate v1 limitations (documented, not hidden)
+### v2 additions (all built and tested)
+- [x] **Keyframe animation** for Position X/Y, Scale, Rotation, Opacity and
+      Volume — Premiere-style: the ◆ button toggles a keyframe at the playhead;
+      once a property is animated, slider moves write keyframes. Keyframes are
+      anchored to *source* time so they survive trims, moves and speed changes.
+- [x] **Chroma key (green screen)** with key color, similarity and smoothness
+- [x] **Vignette** effect; **Wipe** and **Push** transitions; audio crossfade
+- [x] **Audio waveforms** drawn on audio clips in the timeline
+- [x] **Webcam and screen recording** straight into the project bin
+- [x] **Timeline markers** (M / Shift+M), zoom-to-fit
+- [x] **Copy/paste clips** (Ctrl+C/V) and **paste attributes** between clips
+- [x] **Richer titles**: font choice, outline, background box
+- [x] **Sequence settings**: 1080p/720p/SD, vertical 9:16 (Shorts/Reels),
+      square 1:1, at 24/30/60 fps — switchable mid-edit
+- [x] **Save frame** exports the current program frame as a PNG
+- [x] Bin management (remove media safely), export resolutions follow the
+      sequence aspect ratio
+
+### Remaining known limits (honest list)
 - Export is a real-time render (a 60 s sequence takes 60 s), like a live mixdown.
-- No parameter keyframing yet (fades cover the common case); no nested sequences,
-  proxies, multicam, or Lumetri scopes. These are the natural v2 items.
+- Keyframe interpolation is linear (no bezier easing yet); no nested sequences,
+  proxies, multicam, or Lumetri scopes. Natural v3 items.
 
 ## Part 3 — Build / test loop
 1. Scaffold app (`index.html`, `css/`, `js/` as plain scripts so `file://` works

@@ -39,6 +39,7 @@ Media.importFiles = async function (files) {
       await Media.probe(item);
       if (!offline) App.media.push(item);
       results.push(item);
+      if (item.hasAudio) Media.computePeaks(item); // async, redraws when done
     } catch (err) {
       URL.revokeObjectURL(item.url);
       toast(`Could not read ${file.name}`);
@@ -126,13 +127,92 @@ Media.createTitle = function () {
     id: uid("media"), name: "Title " + (App.media.filter((m) => m.type === "title").length + 1),
     type: "title", duration: 5, hasAudio: false, width: 0, height: 0,
     thumb: null, url: null, offline: false,
-    title: { text: "Your text here", fontSize: 72, color: "#ffffff", bold: true, x: 0, y: 0 },
+    title: DEFAULT_TITLE(),
   };
   App.media.push(item);
   Media.renderBin();
   scheduleAutosave();
   toast("Title created — drag it onto a video track, then edit the text in Effect Controls");
   return item;
+};
+
+// --------------------------- audio waveforms -------------------------------
+
+// Decode the file's audio and keep ~50 peak buckets per second for the
+// timeline waveform. Fire-and-forget; silently skips files with no audio.
+Media.computePeaks = async function (item) {
+  if (!item.file || item.file.size > 300 * 1024 * 1024) return;
+  try {
+    const buf = await item.file.arrayBuffer();
+    const octx = new OfflineAudioContext(1, 44100, 44100);
+    const audio = await octx.decodeAudioData(buf);
+    const ch = audio.getChannelData(0);
+    const rate = 50;
+    const n = Math.max(1, Math.ceil(audio.duration * rate));
+    const per = Math.max(1, Math.floor(ch.length / n));
+    const peaks = new Array(n).fill(0);
+    for (let i = 0; i < n; i++) {
+      let m = 0;
+      const s = i * per, e = Math.min(s + per, ch.length);
+      for (let j = s; j < e; j += 8) {
+        const a = Math.abs(ch[j]);
+        if (a > m) m = a;
+      }
+      peaks[i] = m;
+    }
+    item.peaks = peaks;
+    item.peaksRate = rate;
+    Timeline.render();
+  } catch (e) { /* no decodable audio track — that's fine */ }
+};
+
+// ------------------------ webcam / screen recording -------------------------
+
+const Recorder = window.Recorder = {
+  active: null,
+
+  async toggle(kind) {
+    if (this.active) return this.stop();
+    try {
+      const stream = kind === "screen"
+        ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+        : await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
+        ? "video/webm;codecs=vp8,opus" : "";
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      const chunks = [];
+      rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunks, { type: "video/webm" });
+        const n = App.media.filter((m) => m.name.startsWith("Recording")).length + 1;
+        await Media.importFiles([new File([blob], `Recording ${n}.webm`, { type: "video/webm" })]);
+      };
+      // stop when the user ends a screen share from the browser UI
+      stream.getVideoTracks()[0].addEventListener("ended", () => this.stop());
+      rec.start(200);
+      this.active = { rec, kind };
+      this.updateButtons();
+      toast(kind === "screen" ? "Recording your screen — click the button again to stop" : "Recording webcam — click the button again to stop");
+    } catch (e) {
+      toast("Recording unavailable: " + e.message);
+    }
+  },
+
+  stop() {
+    if (!this.active) return;
+    this.active.rec.stop();
+    this.active = null;
+    this.updateButtons();
+  },
+
+  updateButtons() {
+    const cam = $("#btnRecCam"), scr = $("#btnRecScreen");
+    cam.classList.toggle("recording", !!this.active && this.active.kind === "webcam");
+    scr.classList.toggle("recording", !!this.active && this.active.kind === "screen");
+    cam.textContent = this.active && this.active.kind === "webcam" ? "■ Stop" : "⏺ Camera";
+    scr.textContent = this.active && this.active.kind === "screen" ? "■ Stop" : "⏺ Screen";
+  },
 };
 
 // ------------------------------- bin UI -----------------------------------
@@ -160,6 +240,13 @@ Media.renderBin = function () {
       el("div", { class: "bin-name", text: m.name }),
       el("div", { class: "bin-sub", text: m.offline ? "OFFLINE" : `${m.type} · ${formatDuration(m.duration)}` }),
     ));
+    row.appendChild(el("button", {
+      class: "bin-del", text: "✕", title: "Remove from project (deletes its timeline clips too)",
+      onclick: (e) => {
+        e.stopPropagation();
+        Media.remove(m.id);
+      },
+    }));
     row.addEventListener("dragstart", (e) => {
       e.dataTransfer.setData("text/x-gritcut-media", m.id);
       e.dataTransfer.effectAllowed = "copy";
@@ -171,6 +258,26 @@ Media.renderBin = function () {
     });
     list.appendChild(row);
   }
+};
+
+Media.remove = function (mediaId) {
+  const m = findMedia(mediaId);
+  if (!m) return;
+  const used = App.seq.clips.filter((c) => c.mediaId === mediaId).length;
+  if (used && !confirm(`Remove "${m.name}"? Its ${used} clip(s) on the timeline will be deleted too.`)) return;
+  pushHistory();
+  App.seq.clips = App.seq.clips.filter((c) => c.mediaId !== mediaId);
+  App.media = App.media.filter((x) => x.id !== mediaId);
+  if (m.url) URL.revokeObjectURL(m.url);
+  if (App.ui.sourceMediaId === mediaId) {
+    App.ui.sourceMediaId = null;
+    $("#sourceVideo").style.display = "none";
+    $("#sourceImage").style.display = "none";
+    $("#sourceEmpty").style.display = "flex";
+  }
+  pruneTransitions();
+  Media.renderBin();
+  afterModelChange();
 };
 
 // --------------------------- source monitor -------------------------------

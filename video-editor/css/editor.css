@@ -170,7 +170,7 @@ input, select, textarea {
 }
 
 /* ---------- effect controls ---------- */
-.effects-body { overflow-y: auto; flex: 1; padding: 8px; }
+.effects-body { overflow-y: auto; flex: 1; padding: 8px; position: relative; }
 .fx-clip-name {
   font-weight: 600; font-size: 12px; padding: 2px 0 8px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -292,6 +292,32 @@ input, select, textarea {
   position: absolute; top: 0; left: -5px;
   border: 6px solid transparent; border-top: 8px solid #ff4444;
 }
+
+/* ---------- v2: keyframes, waveforms, recording, bin ---------- */
+.kf-btn {
+  flex: 0 0 auto; padding: 1px 5px; font-size: 10px;
+  color: var(--dim); border-radius: 3px;
+}
+.kf-btn.on { color: #fff; background: var(--accent-2); border-color: var(--accent-2); }
+.kf-btn.clear { color: #f85149; }
+.clip-wave {
+  position: absolute; left: 0; top: 5px; pointer-events: none; opacity: 0.8;
+}
+.clip-kf-badge {
+  position: absolute; right: 10px; top: 1px; font-size: 9px;
+  color: #e6d5ff; pointer-events: none;
+}
+.bin-del {
+  flex: 0 0 auto; margin-left: auto; padding: 1px 6px; font-size: 11px;
+  opacity: 0; border-radius: 3px;
+}
+.bin-item:hover .bin-del { opacity: 1; }
+.bin-del:hover { background: #b3363c; border-color: #b3363c; color: #fff; }
+button.recording {
+  background: #b3363c; border-color: #b3363c; color: #fff;
+  animation: rec-pulse 1.2s infinite;
+}
+@keyframes rec-pulse { 50% { filter: brightness(1.35); } }
 
 /* ---------- dialogs & toast ---------- */
 .overlay {

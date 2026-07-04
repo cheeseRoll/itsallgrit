@@ -50,6 +50,39 @@ function wireUI() {
   $("#btnExport").addEventListener("click", () => Exporter.openDialog());
   $("#exportStart").addEventListener("click", () => Exporter.start());
   $("#exportCancel").addEventListener("click", () => Exporter.cancel());
+  $("#btnRecCam").addEventListener("click", () => Recorder.toggle("webcam"));
+  $("#btnRecScreen").addEventListener("click", () => Recorder.toggle("screen"));
+
+  // sequence settings
+  $("#btnSettings").addEventListener("click", () => {
+    if (Exporter.active) return toast("Finish the export first");
+    $("#seqPreset").value = `${App.settings.width}x${App.settings.height}`;
+    $("#seqFps").value = String(App.settings.fps);
+    $("#settingsDialog").classList.add("open");
+  });
+  $("#settingsCancel").addEventListener("click", () => $("#settingsDialog").classList.remove("open"));
+  $("#settingsApply").addEventListener("click", () => {
+    const [w, h] = $("#seqPreset").value.split("x").map(Number);
+    App.settings.width = w;
+    App.settings.height = h;
+    App.settings.fps = parseInt($("#seqFps").value, 10);
+    $("#settingsDialog").classList.remove("open");
+    Player.init();
+    Player.invalidate();
+    scheduleAutosave();
+    toast(`Sequence is now ${w}×${h} @ ${App.settings.fps}fps`);
+  });
+
+  // save current frame as PNG
+  $("#btnSaveFrame").addEventListener("click", () => {
+    Player.drawNow();
+    $("#programCanvas").toBlob((blob) => {
+      if (!blob) return toast("Could not capture the frame");
+      App.lastFrame = blob;
+      downloadBlob(blob, `frame-${timecode(App.ui.playhead, App.settings.fps).replaceAll(":", "-")}.png`);
+      toast("Frame saved to your Downloads");
+    }, "image/png");
+  });
 
   // bin drop zone + import by dropping anywhere on the bin
   const binPanel = $("#binPanel");
@@ -100,6 +133,8 @@ function wireUI() {
   });
   $("#btnZoomIn").addEventListener("click", () => Timeline.setZoom(1.5));
   $("#btnZoomOut").addEventListener("click", () => Timeline.setZoom(1 / 1.5));
+  $("#btnZoomFit").addEventListener("click", () => Timeline.zoomFit());
+  $("#btnMarker").addEventListener("click", addMarker);
 
   // keyboard shortcuts
   window.addEventListener("keydown", (e) => {
@@ -112,6 +147,10 @@ function wireUI() {
     else if ((e.ctrlKey || e.metaKey) && k === "k") { e.preventDefault(); Timeline.splitAtPlayhead(); }
     else if ((e.ctrlKey || e.metaKey) && k === "d") { e.preventDefault(); Timeline.duplicateSelected(); }
     else if ((e.ctrlKey || e.metaKey) && k === "s") { e.preventDefault(); Project.save(); }
+    else if ((e.ctrlKey || e.metaKey) && k === "c") { e.preventDefault(); copySelectedClip(); }
+    else if ((e.ctrlKey || e.metaKey) && k === "v") { e.preventDefault(); pasteClip(); }
+    else if (k === "m" && e.shiftKey) removeNearestMarker();
+    else if (k === "m") addMarker();
     else if (k === "delete" || k === "backspace") { e.preventDefault(); Timeline.deleteSelected(e.shiftKey); }
     else if (k === "c") setTool("razor");
     else if (k === "v") setTool("select");

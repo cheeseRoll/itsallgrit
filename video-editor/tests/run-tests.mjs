@@ -345,6 +345,199 @@ test("overwrite edit trims what it lands on", async () => {
   approx(res[2].start, 3, 0.05, "old blue clip trimmed to start at 3");
 });
 
+test("audio waveform peaks are computed for imported media", async () => {
+  await page.waitForFunction(({ tone }) => {
+    const m = App.media.find((x) => x.id === tone.id);
+    return m && m.peaks && m.peaks.length > 50;
+  }, state, { timeout: 15000 });
+  const maxPeak = await page.evaluate(({ tone }) =>
+    Math.max(...App.media.find((x) => x.id === tone.id).peaks), state);
+  ok(maxPeak > 0.1, `waveform has real amplitude (max ${maxPeak})`);
+});
+
+test("keyframed opacity animates over time", async () => {
+  await page.evaluate(({ red }) => {
+    App.seq.clips = []; App.seq.transitions = [];
+    const c = Timeline.addClip(red.id, "V1", 0);
+    kfUpsert(c, "opacity", 0, 0);
+    kfUpsert(c, "opacity", 2, 100);
+    Player.invalidate();
+  }, state);
+  await seekAndDraw(0.1);
+  const dim = (await px(640, 360))[0];
+  await seekAndDraw(1.0);
+  const mid = (await px(640, 360))[0];
+  await seekAndDraw(1.9);
+  const bright = (await px(640, 360))[0];
+  ok(dim < 40, `near t=0 the clip is almost transparent (r=${dim})`);
+  ok(mid > 70 && mid < 200, `at t=1 opacity is ~50% (r=${mid})`);
+  ok(bright > 200, `at t=1.9 opacity is ~95% (r=${bright})`);
+  ok(dim < mid && mid < bright, "opacity ramps up monotonically");
+});
+
+test("chroma key removes the keyed color", async () => {
+  await page.evaluate(({ red, still }) => {
+    App.seq.clips = []; App.seq.transitions = [];
+    Timeline.addClip(red.id, "V1", 0);
+    const green = Timeline.addClip(still.id, "V2", 0, 0, 3);
+    App.ui.selectedClipId = green.id;
+  }, state);
+  await seekAndDraw(1);
+  let [, g] = await px(640, 360);
+  ok(g > 120, "green still covers the red clip before keying");
+  await page.evaluate(() => {
+    const c = findClip(App.ui.selectedClipId);
+    c.fx.keyEnabled = 1;
+    c.fx.keyColor = "#00cc00";
+    c.fx.keySimilarity = 25;
+    Player.invalidate();
+  });
+  await seekAndDraw(1);
+  const [r2, g2] = await px(640, 360);
+  ok(r2 > 120 && g2 < 90, `keying the green reveals the red beneath (${r2},${g2})`);
+});
+
+test("wipe transition reveals the incoming clip from the left", async () => {
+  await page.evaluate(({ red, blue }) => {
+    App.seq.clips = []; App.seq.transitions = [];
+    const a = Timeline.addClip(red.id, "V1", 0, 0, 2);
+    Timeline.addClip(blue.id, "V1", clipEnd(a), 0, 2);
+    App.ui.selectedClipId = a.id;
+    Timeline.addTransition("wipe", "end");
+  }, state);
+  await seekAndDraw(2.0); // p = 0.5
+  const left = await px(200, 360);
+  const right = await px(1000, 360);
+  ok(left[2] > 120 && left[0] < 90, `left half shows incoming blue (${left})`);
+  ok(right[0] > 120 && right[2] < 90, `right half still shows outgoing red (${right})`);
+  await page.evaluate(() => { App.seq.transitions = []; Player.invalidate(); });
+});
+
+test("title background box and outline render", async () => {
+  await page.evaluate(() => {
+    const t = Media.createTitle();
+    t.title.text = "HELLO";
+    t.title.bg = true;
+    t.title.bgColor = "#ff00ff";
+    t.title.outlineWidth = 6;
+    t.title.outlineColor = "#000000";
+    Timeline.addClip(t.id, "V3", 0, 0, 2);
+  });
+  await seekAndDraw(1);
+  const magenta = await scanRegion(440, 300, 400, 120, "(r,g,b)=>r>200&&b>200&&g<90");
+  const white = await scanRegion(440, 320, 400, 80, "(r,g,b)=>r>200&&g>200&&b>200");
+  const black = await scanRegion(500, 330, 280, 60, "(r,g,b)=>r<45&&g<45&&b<45");
+  ok(magenta, "background box renders");
+  ok(white, "title text renders");
+  ok(black, "outline renders around the letters");
+  await page.evaluate(() => {
+    App.ui.selectedClipId = clipsOnTrack("V3")[0].id;
+    Timeline.deleteSelected();
+  });
+});
+
+test("copy/paste clip and paste attributes between clips", async () => {
+  await page.evaluate(() => {
+    App.ui.selectedClipId = clipsOnTrack("V1")[0].id;
+    copySelectedClip();
+    Player.seek(6);
+    pasteClip();
+  });
+  const pasted = await page.evaluate(() => {
+    const c = findClip(App.ui.selectedClipId);
+    return { start: c.start, mediaId: c.mediaId, n: App.seq.clips.length };
+  });
+  ok(pasted.n === 3, `paste created a third clip (${pasted.n})`);
+  approx(pasted.start, 6, 0.1, "pasted at the playhead");
+  ok(pasted.mediaId === state.red.id, "pasted clip references the same media");
+  const gray = await page.evaluate(() => {
+    const orig = clipsOnTrack("V1")[0];
+    const target = findClip(App.ui.selectedClipId);
+    App.ui.selectedClipId = orig.id;
+    orig.fx.grayscale = 77;
+    copyAttributes();
+    App.ui.selectedClipId = target.id;
+    pasteAttributes();
+    return findClip(App.ui.selectedClipId).fx.grayscale;
+  });
+  ok(gray === 77, `paste attributes carried the effect (grayscale=${gray})`);
+  await page.evaluate(() => {
+    Timeline.deleteSelected();
+    clipsOnTrack("V1")[0].fx.grayscale = 0;
+  });
+});
+
+test("markers add, persist in the project file, and remove", async () => {
+  await page.evaluate(() => { Player.seek(2); addMarker(); });
+  const n = await page.evaluate(() => App.seq.markers.length);
+  ok(n === 1, "marker added");
+  const inJson = await page.evaluate(() => JSON.parse(Project.serialize()).seq.markers.length);
+  ok(inJson === 1, "marker saved in the project file");
+  await page.evaluate(() => removeNearestMarker());
+  const after = await page.evaluate(() => App.seq.markers.length);
+  ok(after === 0, "Shift+M removes the nearest marker");
+});
+
+test("webcam recording lands in the bin as usable media", async () => {
+  // this sandboxed Chromium has no capture devices, so stand in for the OS
+  // camera with a synthetic stream; everything downstream (MediaRecorder,
+  // blob import, duration probe) is the real recorder pipeline
+  await page.evaluate(() => {
+    navigator.mediaDevices.getUserMedia = async () => {
+      const c = document.createElement("canvas");
+      c.width = 320; c.height = 180;
+      const ctx = c.getContext("2d");
+      setInterval(() => { ctx.fillStyle = "#ff8800"; ctx.fillRect(0, 0, 320, 180); }, 50);
+      const actx = new AudioContext();
+      const osc = actx.createOscillator();
+      const dest = actx.createMediaStreamDestination();
+      osc.connect(dest); osc.start();
+      const stream = c.captureStream(30);
+      dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
+      return stream;
+    };
+  });
+  const before = await page.evaluate(() => App.media.length);
+  await page.evaluate(() => Recorder.toggle("webcam"));
+  await page.waitForTimeout(1600);
+  await page.evaluate(() => Recorder.stop());
+  await page.waitForFunction((n) => App.media.length === n + 1, before, { timeout: 20000 });
+  const rec = await page.evaluate(() => {
+    const m = App.media[App.media.length - 1];
+    return { name: m.name, type: m.type, duration: m.duration, offline: m.offline };
+  });
+  ok(rec.type === "video", `recording is video media (${rec.name})`);
+  ok(!rec.offline, "recording is online");
+  ok(isFinite(rec.duration) && rec.duration > 0.5, `recording has a real duration (${rec.duration})`);
+  await page.evaluate(() => Media.remove(App.media[App.media.length - 1].id));
+});
+
+test("save frame exports a PNG still", async () => {
+  await seekAndDraw(1);
+  await page.click("#btnSaveFrame");
+  await page.waitForFunction(() => !!App.lastFrame, null, { timeout: 10000 });
+  const size = await page.evaluate(() => App.lastFrame.size);
+  ok(size > 1000, `PNG frame has substance (${size} bytes)`);
+});
+
+test("sequence settings switch to vertical (Shorts) format", async () => {
+  await page.click("#btnSettings");
+  await page.selectOption("#seqPreset", "1080x1920");
+  await page.selectOption("#seqFps", "30");
+  await page.click("#settingsApply");
+  const dims = await page.evaluate(() => {
+    const c = document.querySelector("#programCanvas");
+    return [c.width, c.height, App.settings.width, App.settings.height];
+  });
+  ok(dims[0] === 1080 && dims[1] === 1920, `canvas resized to vertical (${dims[0]}×${dims[1]})`);
+  await seekAndDraw(1);
+  const [r] = await page.evaluate(() => {
+    const c = document.querySelector("#programCanvas");
+    return c.getContext("2d").getImageData(540, 960, 1, 1).data;
+  });
+  ok(r > 120, "clip still composites centered in the vertical frame");
+});
+
 test("no page errors across the whole run", async () => {
   ok(pageErrors.length === 0, "page errors: " + pageErrors.join(" | "));
 });
@@ -353,7 +546,12 @@ test("no page errors across the whole run", async () => {
 
 browser = await chromium.launch({
   executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
-  args: ["--autoplay-policy=no-user-gesture-required", "--no-sandbox"],
+  args: [
+    "--autoplay-policy=no-user-gesture-required",
+    "--no-sandbox",
+    "--use-fake-ui-for-media-capture",
+    "--use-fake-device-for-media-capture",
+  ],
 });
 context = await browser.newContext({ viewport: { width: 1600, height: 900 } });
 page = await context.newPage();

@@ -32,12 +32,22 @@ internet, and your files never leave your machine.**
    Black* at either cut. Double-click a transition on the timeline to remove it.
 6. **Titles** — *New Title* creates a text clip; drag it onto V2/V3 above your
    footage and edit the text in Effect Controls.
-7. **Export** — renders the sequence through the same engine to a real video
-   file (WebM everywhere; MP4 where the browser supports it) straight into
-   your Downloads folder.
-8. **Save/Open Project** — the edit is saved as a small `.json` file
-   (media relinks by file name when you re-import, like Premiere's offline
-   media). The project also autosaves inside the browser tab.
+7. **Animate with keyframes** — in Effect Controls, click the **◆** next to
+   Position, Scale, Rotation, Opacity or Volume to drop a keyframe at the
+   playhead; move the playhead, change the value, and the property animates
+   between keyframes (that's how you do zoom-ins, slide-ins and audio ducking).
+8. **Green screen** — enable *Chroma Key* on a clip, pick the key color, and
+   tune Similarity/Smoothness; put your background on the track below.
+9. **Record** — *⏺ Camera* / *⏺ Screen* record your webcam or screen straight
+   into the project bin, ready to edit.
+10. **Sequence format** — the *Sequence* button switches between Full HD, HD,
+    vertical 9:16 (Shorts/Reels/TikTok), and square 1:1 at 24/30/60 fps.
+11. **Export** — renders the sequence through the same engine to a real video
+    file (WebM everywhere; MP4 where the browser supports it) straight into
+    your Downloads folder. The 📷 button saves the current frame as a PNG.
+12. **Save/Open Project** — the edit is saved as a small `.json` file
+    (media relinks by file name when you re-import, like Premiere's offline
+    media). The project also autosaves inside the browser tab.
 
 ## Keyboard shortcuts
 
@@ -50,8 +60,10 @@ internet, and your files never leave your machine.**
 | `Ctrl+K` | Split at playhead |
 | `Delete` (`Shift+Delete`) | Delete (ripple delete) selected clip |
 | `Ctrl+D` | Duplicate selected clip |
+| `Ctrl+C` / `Ctrl+V` | Copy clip / paste it at the playhead |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
 | `I` / `O` | Mark In / Out in the Source Monitor |
+| `M` / `Shift+M` | Add / remove a timeline marker |
 | `S` | Toggle snapping |
 | `+` / `−` | Zoom timeline |
 | `Ctrl+S` | Save project |
@@ -70,10 +82,10 @@ node make-fixtures.mjs   # generates test clips with ffmpeg
 node run-tests.mjs       # runs the end-to-end suite in Chromium
 ```
 
-## Known v1 limits
+## Known limits
 
 - Export renders in real time (a 60 s sequence takes ~60 s).
-- No keyframed parameters yet (fade in/out handles cover the common case);
-  no nested sequences, proxies or multicam.
+- Keyframe interpolation is linear (no bezier easing yet); no nested
+  sequences, proxies or multicam.
 - A video clip's audio travels with the clip (there is no separate linked
   audio clip on an A track); audio *files* go on A1–A3.

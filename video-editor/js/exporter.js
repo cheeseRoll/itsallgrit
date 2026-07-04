@@ -31,8 +31,16 @@ const Exporter = window.Exporter = {
     for (const [mime, label] of this.formats()) {
       sel.appendChild(el("option", { value: mime, text: label }));
     }
-    $("#exportRes").querySelector('option[value="project"]').textContent =
-      `Project (${App.settings.width}×${App.settings.height})`;
+    // resolution choices follow the sequence's aspect ratio
+    const res = $("#exportRes");
+    res.innerHTML = "";
+    res.appendChild(el("option", { value: "project", text: `Project (${App.settings.width}×${App.settings.height})` }));
+    const even = (n) => Math.max(2, Math.round(n / 2) * 2);
+    for (const h of [1080, 720, 480]) {
+      if (h >= App.settings.height) continue;
+      const w = even((App.settings.width * h) / App.settings.height);
+      res.appendChild(el("option", { value: `${w}x${h}`, text: `${w} × ${h}` }));
+    }
     $("#exportProgress").style.width = "0%";
     const dur = sequenceEnd();
     $("#exportInfo").textContent =
@@ -157,14 +165,19 @@ const Project = window.Project = {
     App.media = (data.media || []).map((m) => ({
       ...m,
       url: null, file: null, img: null,
+      title: m.title ? { ...DEFAULT_TITLE(), ...m.title } : null,
       offline: m.type !== "title", // titles are self-contained
     }));
     App.seq = data.seq;
+    App.seq.markers = App.seq.markers || [];
+    App.seq.transitions = App.seq.transitions || [];
+    (App.seq.clips || []).forEach(migrateClip);
     App.ui.playhead = data.playhead || 0;
     App.ui.selectedClipId = null;
     App.history.undo.length = 0;
     App.history.redo.length = 0;
     for (const id of [...Pool.entries.keys()]) Pool.dispose(id);
+    Player.init(); // sequence settings (resolution/fps) may have changed
     Media.renderBin();
     Timeline.init();
     afterModelChange();
