@@ -74,20 +74,43 @@ const Pool = window.Pool = {
     const media = findMedia(clip.mediaId);
     if (!media || !media.hasAudio) return;
     try {
-      entry.srcNode = AudioEngine.ctx.createMediaElementSource(entry.el);
-      entry.gain = AudioEngine.ctx.createGain();
+      const actx = AudioEngine.ctx;
+      entry.srcNode = actx.createMediaElementSource(entry.el);
+      entry.gain = actx.createGain();
+      // per-clip filter chain: gain -> bass shelf -> treble shelf -> HP -> LP
+      entry.bass = actx.createBiquadFilter();
+      entry.bass.type = "lowshelf"; entry.bass.frequency.value = 200;
+      entry.treble = actx.createBiquadFilter();
+      entry.treble.type = "highshelf"; entry.treble.frequency.value = 3000;
+      entry.hp = actx.createBiquadFilter();
+      entry.hp.type = "highpass"; entry.hp.frequency.value = 10;
+      entry.lp = actx.createBiquadFilter();
+      entry.lp.type = "lowpass"; entry.lp.frequency.value = 22050;
       entry.srcNode.connect(entry.gain);
-      const trackGain = AudioEngine.trackGains[clip.track] || AudioEngine.master;
-      entry.gain.connect(trackGain);
+      entry.gain.connect(entry.bass);
+      entry.bass.connect(entry.treble);
+      entry.treble.connect(entry.hp);
+      entry.hp.connect(entry.lp);
+      entry.tail = entry.lp;
+      entry.tail.connect(AudioEngine.trackGains[clip.track] || AudioEngine.master);
       entry.trackId = clip.track;
     } catch (e) { console.warn("audio connect failed", e); }
   },
 
   retrack(clip, entry) {
-    if (!entry.gain || entry.trackId === clip.track) return;
-    entry.gain.disconnect();
-    entry.gain.connect(AudioEngine.trackGains[clip.track] || AudioEngine.master);
+    if (!entry.tail || entry.trackId === clip.track) return;
+    entry.tail.disconnect();
+    entry.tail.connect(AudioEngine.trackGains[clip.track] || AudioEngine.master);
     entry.trackId = clip.track;
+  },
+
+  applyFilters(clip, entry) {
+    if (!entry.bass) return;
+    const a = clip.audio || DEFAULT_AUDIO();
+    entry.bass.gain.value = a.bass;
+    entry.treble.gain.value = a.treble;
+    entry.hp.frequency.value = a.highpass > 0 ? a.highpass : 10;
+    entry.lp.frequency.value = a.lowpass > 0 ? a.lowpass : 22050;
   },
 
   dispose(clipId) {
@@ -201,7 +224,7 @@ const Compositor = window.Compositor = {
     ctx.filter = this.filterString(clip.fx);
 
     if (media.type === "title") {
-      this.drawTitle(ctx, media, W, H);
+      this.drawTitle(ctx, media, W, H, clip, t);
     } else {
       let src = null, sw = 0, sh = 0;
       if (media.type === "image") {
@@ -257,12 +280,41 @@ const Compositor = window.Compositor = {
     return kc.c;
   },
 
-  drawTitle(ctx, media, W, H) {
+  // in/out animation envelope for a title at clip-local time
+  titleAnim(tp, clip, t) {
+    const state = { alpha: 1, offY: 0, scale: 1, chars: Infinity };
+    if (!clip) return state;
+    const dur = Math.max(0.05, tp.animDur || 0.7);
+    const local = t - clip.start;
+    const remain = clipDur(clip) - local;
+    const apply = (kind, p) => {
+      p = clamp(p, 0, 1);
+      const e = EASING.easeOut(p);
+      if (kind === "fade") state.alpha *= p;
+      else if (kind === "slide-up") { state.alpha *= p; state.offY += (1 - e) * 90; }
+      else if (kind === "slide-down") { state.alpha *= p; state.offY -= (1 - e) * 90; }
+      else if (kind === "pop") { state.alpha *= p; state.scale *= 0.55 + 0.45 * e; }
+      else if (kind === "typewriter") state.chars = Math.min(state.chars, p);
+    };
+    if (tp.animIn && tp.animIn !== "none" && local < dur) apply(tp.animIn, local / dur);
+    if (tp.animOut && tp.animOut !== "none" && remain < dur) apply(tp.animOut, remain / dur);
+    return state;
+  },
+
+  drawTitle(ctx, media, W, H, clip, t) {
     const tp = media.title;
+    const anim = this.titleAnim(tp, clip, t);
+    if (anim.alpha <= 0.003) return;
+    ctx.globalAlpha *= anim.alpha;
+    ctx.translate(tp.x, tp.y + anim.offY);
+    ctx.scale(anim.scale, anim.scale);
+    ctx.translate(-tp.x, -tp.y);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = `${tp.bold ? "bold " : ""}${tp.fontSize}px ${tp.font || "system-ui"}, "Segoe UI", sans-serif`;
-    const lines = String(tp.text).split("\n");
+    let text = String(tp.text);
+    if (anim.chars !== Infinity) text = text.slice(0, Math.ceil(text.length * anim.chars));
+    const lines = text.split("\n");
     const lh = tp.fontSize * 1.2;
     const y0 = tp.y - ((lines.length - 1) * lh) / 2;
     if (tp.bg) {
@@ -327,6 +379,7 @@ const Player = window.Player = {
 
   play() {
     if (this.playing) return;
+    if (App.exporting) return toast("Rendering… cancel the export to use the timeline");
     if (!App.seq.clips.length) return toast("Timeline is empty — drag media from the Project panel");
     AudioEngine.resume();
     if (App.ui.playhead >= sequenceEnd() - 0.01) App.ui.playhead = 0;
@@ -399,6 +452,7 @@ const Player = window.Player = {
       }
       Pool.connectAudio(clip, entry);
       Pool.retrack(clip, entry);
+      Pool.applyFilters(clip, entry);
       const local = clamp(clipLocalTime(clip, t), 0, Math.max(0, media.duration - 0.05));
       if (playing) {
         entry.el.playbackRate = clamp(clip.speed, 0.1, 16);

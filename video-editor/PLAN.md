@@ -105,10 +105,26 @@ browser, no server, no install, no upload — files never leave the machine.**
 - [x] Bin management (remove media safely), export resolutions follow the
       sequence aspect ratio
 
+### v3 additions (all built and tested)
+- [x] **Fast render engine**: frame-accurate faster-than-real-time export via
+      WebCodecs (`VideoEncoder` VP9/VP8 + `AudioEncoder` Opus) muxed by a
+      from-scratch WebM/Matroska writer (`js/muxer.js` — EBML header, Info,
+      Tracks with OpusHead CodecPrivate, Clusters of SimpleBlocks). Audio is
+      mixed deterministically with an `OfflineAudioContext` reproducing volume
+      keyframes, fades, filters and track mutes. The real-time MediaRecorder
+      path remains as a "compatible" engine choice.
+- [x] **Keyframe easing** per animated property: linear, easeIn, easeOut,
+      easeInOut, hold.
+- [x] **Title animation presets**: fade / slide-up / slide-down / pop /
+      typewriter, in and out, with adjustable duration.
+- [x] **Per-clip audio filters**: bass & treble shelves, high-pass, low-pass —
+      applied identically in live playback and in the export mixdown.
+
 ### Remaining known limits (honest list)
-- Export is a real-time render (a 60 s sequence takes 60 s), like a live mixdown.
-- Keyframe interpolation is linear (no bezier easing yet); no nested sequences,
-  proxies, multicam, or Lumetri scopes. Natural v3 items.
+- No bezier curve editor (five easing presets instead); no nested sequences,
+  proxies, multicam, or Lumetri scopes.
+- Fast render writes WebM (VP9/VP8+Opus). MP4/H.264 output is available via
+  the real-time engine where the browser supports it.
 
 ## Part 3 — Build / test loop
 1. Scaffold app (`index.html`, `css/`, `js/` as plain scripts so `file://` works

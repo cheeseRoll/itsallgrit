@@ -54,16 +54,29 @@ const DEFAULT_TITLE = () => ({
   text: "Your text here", fontSize: 72, color: "#ffffff", bold: true,
   x: 0, y: 0, font: "system-ui", outlineWidth: 0, outlineColor: "#000000",
   bg: false, bgColor: "#000000",
+  animIn: "none", animOut: "none", animDur: 0.7,
 });
 
 const DEFAULT_TRANSFORM = () => ({ x: 0, y: 0, scale: 100, rotation: 0 });
+
+const DEFAULT_AUDIO = () => ({ bass: 0, treble: 0, lowpass: 0, highpass: 0 });
+
+// easing curves applied between keyframes (per property, via clip.kfEase)
+const EASING = {
+  linear: (p) => p,
+  easeIn: (p) => p * p,
+  easeOut: (p) => 1 - (1 - p) * (1 - p),
+  easeInOut: (p) => (p < 0.5 ? 2 * p * p : 1 - ((-2 * p + 2) ** 2) / 2),
+  hold: () => 0,
+};
 
 function makeClip(mediaId, track, start, inPt, outPt) {
   return {
     id: uid("clip"), mediaId, track,
     start, in: inPt, out: outPt,
     speed: 1, volume: 100, opacity: 100, fadeIn: 0, fadeOut: 0,
-    transform: DEFAULT_TRANSFORM(), fx: DEFAULT_FX(), kf: {},
+    transform: DEFAULT_TRANSFORM(), fx: DEFAULT_FX(), kf: {}, kfEase: {},
+    audio: DEFAULT_AUDIO(),
   };
 }
 
@@ -71,7 +84,9 @@ function makeClip(mediaId, track, start, inPt, outPt) {
 function migrateClip(c) {
   c.fx = { ...DEFAULT_FX(), ...(c.fx || {}) };
   c.transform = { ...DEFAULT_TRANSFORM(), ...(c.transform || {}) };
+  c.audio = { ...DEFAULT_AUDIO(), ...(c.audio || {}) };
   c.kf = c.kf || {};
+  c.kfEase = c.kfEase || {};
   c.speed = c.speed ?? 1;
   c.volume = c.volume ?? 100;
   c.opacity = c.opacity ?? 100;
@@ -108,10 +123,11 @@ function propValue(clip, prop, t) {
   if (s <= list[0].t) return list[0].v;
   const last = list[list.length - 1];
   if (s >= last.t) return last.v;
+  const ease = EASING[(clip.kfEase && clip.kfEase[prop]) || "linear"] || EASING.linear;
   for (let i = 0; i < list.length - 1; i++) {
     const a = list[i], b = list[i + 1];
     if (s >= a.t && s <= b.t) {
-      const p = (s - a.t) / Math.max(b.t - a.t, 1e-9);
+      const p = ease((s - a.t) / Math.max(b.t - a.t, 1e-9));
       return a.v + (b.v - a.v) * p;
     }
   }

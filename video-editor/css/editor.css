@@ -300,6 +300,9 @@ input, select, textarea {
 }
 .kf-btn.on { color: #fff; background: var(--accent-2); border-color: var(--accent-2); }
 .kf-btn.clear { color: #f85149; }
+.ease-row { padding-left: 12px; margin-top: -2px; }
+.ease-row label { color: var(--accent-2); }
+.ease-select { font-size: 11px; padding: 1px 4px; }
 .clip-wave {
   position: absolute; left: 0; top: 5px; pointer-events: none; opacity: 0.8;
 }

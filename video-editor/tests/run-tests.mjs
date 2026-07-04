@@ -271,6 +271,7 @@ test("export renders a real playable video file", async () => {
   }, state);
   await page.evaluate(() => Exporter.openDialog());
   await page.selectOption("#exportRes", "854x480");
+  await page.selectOption("#exportEngine", "realtime");
   await page.evaluate(() => Exporter.start());
   await page.waitForFunction(() => !!App.lastExport, null, { timeout: 60000 });
   const info = await page.evaluate(() => ({ size: App.lastExport.size, type: App.lastExport.type }));
@@ -518,6 +519,117 @@ test("save frame exports a PNG still", async () => {
   await page.waitForFunction(() => !!App.lastFrame, null, { timeout: 10000 });
   const size = await page.evaluate(() => App.lastFrame.size);
   ok(size > 1000, `PNG frame has substance (${size} bytes)`);
+});
+
+test("fast render (WebCodecs + own WebM muxer) produces a playable file", async () => {
+  // timeline is red[0..2) blue[2..4) at this point
+  await page.evaluate(() => Exporter.openDialog());
+  await page.selectOption("#exportEngine", "fast");
+  await page.selectOption("#exportRes", "854x480");
+  const t0 = Date.now();
+  await page.evaluate(() => { App.lastExport = null; Exporter.start(); });
+  await page.waitForFunction(() => !!App.lastExport, null, { timeout: 120000 });
+  const renderSecs = (Date.now() - t0) / 1000;
+  const info = await page.evaluate(() => ({ size: App.lastExport.size, type: App.lastExport.type }));
+  ok(info.size > 20000, `muxed file has substance (${info.size} bytes)`);
+
+  const check = await page.evaluate(async () => {
+    const url = URL.createObjectURL(App.lastExport.blob);
+    const v = document.createElement("video");
+    v.src = url;
+    await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej(new Error("decode failed")); });
+    const dur = v.duration;
+    const sample = async (t) => {
+      v.currentTime = t;
+      await new Promise((res) => (v.onseeked = res));
+      const c = document.createElement("canvas");
+      c.width = v.videoWidth; c.height = v.videoHeight;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(v, 0, 0);
+      const d = ctx.getImageData(Math.floor(c.width / 2), Math.floor(c.height / 2), 1, 1).data;
+      return [d[0], d[1], d[2]];
+    };
+    const early = await sample(1.0);
+    const late = await sample(3.2);
+    // verify the muxed opus track actually decodes
+    v.muted = true;
+    await v.play().catch(() => {});
+    await new Promise((r) => setTimeout(r, 400));
+    v.pause();
+    const audioBytes = v.webkitAudioDecodedByteCount || 0;
+    return { dur, early, late, w: v.videoWidth, audioBytes };
+  });
+  approx(check.dur, 4, 0.5, "muxer wrote the right duration");
+  ok(check.w === 854, `rendered at requested width (${check.w})`);
+  ok(check.early[0] > 100 && check.early[2] < 100, `frame at 1s is red (${check.early})`);
+  ok(check.late[2] > 100 && check.late[0] < 100, `frame at 3.2s is blue (${check.late})`);
+  ok(check.audioBytes > 0, `muxed audio track decodes (${check.audioBytes} bytes)`);
+  console.log(`      (4s sequence rendered in ${renderSecs.toFixed(1)}s)`);
+});
+
+test("keyframe easing curves change the interpolation", async () => {
+  const vals = await page.evaluate(() => {
+    const c = clipsOnTrack("V1")[0];
+    c.kf.x = [{ t: 0, v: 0 }, { t: 2, v: 100 }];
+    c.kfEase = { x: "linear" };
+    const linear = propValue(c, "x", c.start + 1); // source t=1, midpoint
+    c.kfEase.x = "easeIn";
+    const eased = propValue(c, "x", c.start + 1);
+    c.kfEase.x = "hold";
+    const held = propValue(c, "x", c.start + 1.9);
+    c.kf.x = []; c.kfEase = {};
+    return { linear, eased, held };
+  });
+  approx(vals.linear, 50, 1, "linear midpoint is 50");
+  approx(vals.eased, 25, 1, "easeIn midpoint is 25");
+  approx(vals.held, 0, 0.01, "hold keeps the previous keyframe value");
+});
+
+test("title animation presets animate text in", async () => {
+  await page.evaluate(() => {
+    const t = Media.createTitle();
+    t.title.text = "ANIMATED";
+    t.title.animIn = "fade";
+    t.title.animDur = 1;
+    Timeline.addClip(t.id, "V3", 0, 0, 3);
+  });
+  await seekAndDraw(0.06); // 6% into the fade — text nearly invisible
+  const early = await scanRegion(340, 320, 600, 80, "(r,g,b)=>r>200&&g>200&&b>200");
+  await seekAndDraw(1.8);  // fade done
+  const late = await scanRegion(340, 320, 600, 80, "(r,g,b)=>r>200&&g>200&&b>200");
+  ok(!early, "text is not yet visible at the start of the fade-in");
+  ok(late, "text is fully visible after the fade-in");
+  await page.evaluate(() => {
+    App.ui.selectedClipId = clipsOnTrack("V3")[0].id;
+    Timeline.deleteSelected();
+  });
+});
+
+test("per-clip audio filters shape the sound (high-pass kills a low tone)", async () => {
+  await page.evaluate(({ tone }) => {
+    App.seq.clips = App.seq.clips.filter((c) => findTrack(c.track).kind !== "audio");
+    Timeline.addClip(tone.id, "A1", 0);
+    for (const c of clipsOnTrack("V1")) c.volume = 0;
+  }, state);
+  await page.evaluate(() => { Player.seek(0.3); Player.play(); });
+  await page.waitForTimeout(900);
+  const loud = await page.evaluate(() => AudioEngine.levelPeak());
+  await page.evaluate(() => {
+    const a1 = clipsOnTrack("A1")[0];
+    a1.audio.highpass = 3000; // the fixture tone is 440 Hz
+  });
+  await page.waitForTimeout(900);
+  const filtered = await page.evaluate(() => AudioEngine.levelPeak());
+  ok(loud > 0.05, `tone audible before filtering (peak ${loud.toFixed(3)})`);
+  ok(filtered < loud * 0.4, `high-pass attenuates the tone (${loud.toFixed(3)} → ${filtered.toFixed(3)})`);
+  await page.evaluate(() => {
+    Player.pause();
+    const a1 = clipsOnTrack("A1")[0];
+    a1.audio.highpass = 0;
+    App.ui.selectedClipId = a1.id;
+    Timeline.deleteSelected();
+    for (const c of clipsOnTrack("V1")) c.volume = 100;
+  });
 });
 
 test("sequence settings switch to vertical (Shorts) format", async () => {

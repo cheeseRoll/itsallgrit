@@ -36,15 +36,23 @@ internet, and your files never leave your machine.**
    Position, Scale, Rotation, Opacity or Volume to drop a keyframe at the
    playhead; move the playhead, change the value, and the property animates
    between keyframes (that's how you do zoom-ins, slide-ins and audio ducking).
+   Pick an easing curve (easeIn/easeOut/easeInOut/hold) on any animated
+   property. Titles also have one-click animation presets (fade, slide, pop,
+   typewriter — in and out), and every audio clip has bass/treble EQ plus
+   high-pass/low-pass filters in Effect Controls.
 8. **Green screen** — enable *Chroma Key* on a clip, pick the key color, and
    tune Similarity/Smoothness; put your background on the track below.
 9. **Record** — *⏺ Camera* / *⏺ Screen* record your webcam or screen straight
    into the project bin, ready to edit.
 10. **Sequence format** — the *Sequence* button switches between Full HD, HD,
     vertical 9:16 (Shorts/Reels/TikTok), and square 1:1 at 24/30/60 fps.
-11. **Export** — renders the sequence through the same engine to a real video
-    file (WebM everywhere; MP4 where the browser supports it) straight into
-    your Downloads folder. The 📷 button saves the current frame as a PNG.
+11. **Export** — two engines:
+    - **Fast render** (default): frame-accurate WebCodecs render, usually
+      *faster than real time*, muxed into a WebM file by GritCut's own muxer.
+    - **Real-time capture** (compatible): records playback via MediaRecorder;
+      offers MP4 where the browser supports it.
+    Either way the file lands in your Downloads. The 📷 button saves the
+    current frame as a PNG.
 12. **Save/Open Project** — the edit is saved as a small `.json` file
     (media relinks by file name when you re-import, like Premiere's offline
     media). The project also autosaves inside the browser tab.
@@ -84,8 +92,9 @@ node run-tests.mjs       # runs the end-to-end suite in Chromium
 
 ## Known limits
 
-- Export renders in real time (a 60 s sequence takes ~60 s).
-- Keyframe interpolation is linear (no bezier easing yet); no nested
-  sequences, proxies or multicam.
+- Fast render outputs WebM (VP9/VP8 + Opus); use the real-time engine for MP4
+  where the browser supports it.
+- Easing comes as five presets (linear/easeIn/easeOut/easeInOut/hold), not a
+  bezier curve editor; no nested sequences, proxies or multicam.
 - A video clip's audio travels with the clip (there is no separate linked
   audio clip on an A track); audio *files* go on A1–A3.

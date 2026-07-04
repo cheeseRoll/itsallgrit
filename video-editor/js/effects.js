@@ -60,6 +60,21 @@ Effects.sliderRow = function (label, min, max, step, get, set, unit = "", kfSpec
           afterModelChange();
         },
       }));
+      // easing curve for the animation between keyframes
+      const easeSel = el("select", { class: "ease-select", title: "Easing between keyframes" },
+        ...Object.keys(EASING).map((e2) => el("option", { value: e2, text: e2 })));
+      easeSel.value = (kfSpec.clip.kfEase && kfSpec.clip.kfEase[kfSpec.prop]) || "linear";
+      easeSel.addEventListener("change", () => {
+        pushHistory();
+        kfSpec.clip.kfEase = kfSpec.clip.kfEase || {};
+        kfSpec.clip.kfEase[kfSpec.prop] = easeSel.value;
+        Player.invalidate();
+        scheduleAutosave();
+      });
+      const wrap = el("div", {},
+        row,
+        el("div", { class: "fx-row ease-row" }, el("label", { text: "↳ easing" }), easeSel));
+      return wrap;
     }
   }
   return row;
@@ -136,6 +151,20 @@ function renderEffectControls() {
       Effects.checkboxRow("Background", () => media.title.bg, (v) => media.title.bg = !!v),
       Effects.colorRow("Bg color", () => media.title.bgColor, (v) => media.title.bgColor = v),
     ));
+
+    const animOpts = (withType) => ["none", "fade", "slide-up", "slide-down", "pop", ...(withType ? ["typewriter"] : [])]
+      .map((a) => el("option", { value: a, text: a }));
+    const inSel = el("select", {}, ...animOpts(true));
+    inSel.value = media.title.animIn || "none";
+    inSel.addEventListener("change", () => { media.title.animIn = inSel.value; Player.invalidate(); scheduleAutosave(); });
+    const outSel = el("select", {}, ...animOpts(false));
+    outSel.value = media.title.animOut || "none";
+    outSel.addEventListener("change", () => { media.title.animOut = outSel.value; Player.invalidate(); scheduleAutosave(); });
+    host.appendChild(Effects.section("Text Animation",
+      el("div", { class: "fx-row" }, el("label", { text: "Animate in" }), inSel),
+      el("div", { class: "fx-row" }, el("label", { text: "Animate out" }), outSel),
+      S("Duration", 0.2, 2, 0.1, () => media.title.animDur, (v) => media.title.animDur = v, "s"),
+    ));
   }
 
   if (isVideoTrack) {
@@ -203,6 +232,11 @@ function renderEffectControls() {
   if (media && media.hasAudio) {
     host.appendChild(Effects.section("Audio",
       S("Volume", 0, 200, 1, () => clip.volume, (v) => clip.volume = v, "%", kf("volume")),
+      S("Bass", -24, 24, 1, () => clip.audio.bass, (v) => clip.audio.bass = v, "dB"),
+      S("Treble", -24, 24, 1, () => clip.audio.treble, (v) => clip.audio.treble = v, "dB"),
+      S("High-pass", 0, 4000, 10, () => clip.audio.highpass, (v) => clip.audio.highpass = v, "Hz"),
+      S("Low-pass", 0, 20000, 50, () => clip.audio.lowpass, (v) => clip.audio.lowpass = v, "Hz"),
+      el("div", { class: "dim", style: "font-size:11px", text: "0 Hz = filter off. High-pass removes rumble; low-pass removes hiss." }),
       el("div", { class: "fx-btn-row" },
         el("button", {
           text: "Crossfade at cut →", title: "Fade this clip out and the next clip in (0.5s each)",
